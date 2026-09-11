@@ -8,6 +8,8 @@ astro dev --background
 
 Manage the background server with `astro dev stop`, `astro dev status`, and `astro dev logs`.
 
+Use bun for js ecosystem.
+
 ## Documentation
 
 Full documentation: https://docs.astro.build
