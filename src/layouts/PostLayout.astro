@@ -1,0 +1,44 @@
+---
+import Layout from "./Layout.astro";
+import { formatDate, formatDateAttr } from "../utils/posts";
+
+interface Props {
+  title: string;
+  description?: string;
+  pubDate: Date;
+  tags?: string[];
+}
+
+const { title, description, pubDate, tags } = Astro.props;
+---
+
+<Layout title={title} description={description}>
+  <article>
+    <header>
+      <h1>{title}</h1>
+      {tags?.length && <p>{tags.map((tag) => `${tag}`).join(" ")}</p>}
+      <p class="meta">
+        <time datetime={formatDateAttr(pubDate)}>{formatDate(pubDate)}</time>
+      </p>
+      {description && <p class="description">{description}</p>}
+    </header>
+
+    <div class="body">
+      <slot />
+    </div>
+  </article>
+  <footer></footer>
+</Layout>
+
+<style>
+  .meta {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 1rem;
+  }
+
+  .description {
+    font-style: italic;
+    margin: 0 0 2rem;
+  }
+</style>

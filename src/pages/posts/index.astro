@@ -1,11 +1,13 @@
 ---
 import { getCollection } from "astro:content";
+import Layout from "../../layouts/Layout.astro";
+import PostList from "../../components/PostList.astro";
+import { sortPosts } from "../../utils/posts";
 
-const posts = await getCollection("articles");
+const posts = sortPosts(await getCollection("posts"));
 ---
 
-<ul>
-  {posts.map((post: any) => (
-    <li>{post.data.title}</li>
-  ))}
-</ul>
+<Layout title="Posts" description="All posts, newest first.">
+  <h1>Posts</h1>
+  <PostList posts={posts} />
+</Layout>

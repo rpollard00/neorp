@@ -1,46 +1,52 @@
-# Astro Starter Kit: Basics
+# neorp
 
-```sh
-bun create astro@latest -- --template basics
+Personal site. Astro + Markdown/MDX, built static.
+
+## Writing
+
+Drop a `.md` or `.mdx` file in `src/content/posts/`. The file name is the slug:
+
+| File                               | URL                   |
+| ---------------------------------- | --------------------- |
+| `src/content/posts/hello-world.md` | `/posts/hello-world/` |
+| `src/content/posts/notes/foo.mdx`  | `/posts/notes/foo/`   |
+
+A `slug:` in frontmatter is ignored on purpose — a post can't drift away from
+the name of its file. Frontmatter schema lives in `src/content.config.ts`:
+
+```yaml
+---
+title: Post title # required
+description: One line shown in the list and in <meta>
+pubDate: 2026-09-14 # optional; undated posts sort to the bottom
+tags: [demo] # optional
+---
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+MDX files can import components: `import Foo from "../../components/Foo.astro"`.
 
-## 🚀 Project Structure
+## Routes
 
-Inside of your Astro project, you'll see the following folders and files:
+| Path             | Source                            |
+| ---------------- | --------------------------------- |
+| `/`              | `src/pages/index.astro`           |
+| `/posts/`        | `src/pages/posts/index.astro`     |
+| `/posts/<slug>/` | `src/pages/posts/[...slug].astro` |
+| `/about/`        | `src/pages/about.astro`           |
 
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
-```
+Shared chrome (head, nav, base type styles) is in `src/layouts/Layout.astro`.
+`src/layouts/PostLayout.astro` wraps a single post. List helpers live in
+`src/utils/posts.ts`.
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+## Commands
 
-## 🧞 Commands
+| Command           | Action                         |
+| ----------------- | ------------------------------ |
+| `bun dev`         | Dev server at `localhost:4321` |
+| `bun run build`   | Production build to `./dist/`  |
+| `bun run preview` | Preview the build              |
+| `bunx prettier .` | Format                         |
 
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `bun install`             | Installs dependencies                            |
-| `bun dev`             | Starts local dev server at `localhost:4321`      |
-| `bun build`           | Build your production site to `./dist/`          |
-| `bun preview`         | Preview your build locally, before deploying     |
-| `bun astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `bun astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+The post route is a rest parameter (`[...slug].astro`) so posts in subfolders of
+`src/content/posts/` build too. A plain `[slug].astro` fails the build with
+`Missing parameter: slug` as soon as one nested file shows up.

@@ -1,0 +1,50 @@
+---
+import { formatDate, formatDateAttr, postUrl, type Post } from "../utils/posts";
+
+interface Props {
+  posts: Post[];
+}
+
+const { posts } = Astro.props;
+---
+
+{posts.length === 0 ? (
+  <p>Got bored before writing anything...</p>
+) : (
+  <ul>
+    {posts.map((post) => (
+      <li>
+        <a href={postUrl(post)}>{post.data.title}</a>
+        {post.data.pubDate && (
+          <time datetime={formatDateAttr(post.data.pubDate)}>
+            {formatDate(post.data.pubDate)}
+          </time>
+        )}
+        {post.data.description && <span> &mdash; {post.data.description}</span>}
+      </li>
+    ))}
+  </ul>
+)}
+
+<style>
+  ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  li {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #eee;
+  }
+
+  time {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-left: 0.5rem;
+  }
+
+  li p {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+  }
+</style>

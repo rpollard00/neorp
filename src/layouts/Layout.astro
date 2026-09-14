@@ -1,23 +1,109 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const SITE_NAME = "Neorp";
+const { title, description } = Astro.props;
+const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
+---
+
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Neorp</title>
-	</head>
-	<body>
-		<slot />
-	</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <header>
+      <a href="/">Home</a>
+      <a href="/posts/">Posts</a>
+      <a href="/about/">About</a>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+  </body>
 </html>
 
-<style>
-	html,
-	body {
-		margin: 0;
-		width: 100%;
-		height: 100%;
-	}
+<style is:global>
+  :root {
+    --fg: #1a1a1a;
+    --muted: #666;
+    --accent: #0b5cad;
+    --max-width: 46rem;
+  }
+
+  body {
+    margin: 0 auto;
+    padding: 1.5rem 1rem 4rem;
+    max-width: var(--max-width);
+    color: var(--fg);
+    background: #fff;
+    font-family:
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      Arial,
+      sans-serif;
+    line-height: 1.6;
+  }
+
+  header {
+    display: flex;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 2rem;
+  }
+
+  a {
+    color: var(--accent);
+  }
+
+  main {
+    min-height: 60vh;
+  }
+
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.5rem;
+  }
+
+  h2 {
+    font-size: 1.4rem;
+    margin-top: 2rem;
+  }
+
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  pre {
+    padding: 1rem;
+    overflow-x: auto;
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+
+  code {
+    font-family:
+      ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
+      monospace;
+  }
+
+  :where(p, ul, ol, blockquote) {
+    margin-block: 1rem;
+  }
 </style>
