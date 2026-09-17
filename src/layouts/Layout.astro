@@ -1,4 +1,6 @@
 ---
+import "../styles/dither-mask.css";
+
 interface Props {
   title?: string;
   description?: string;
@@ -43,8 +45,10 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
        Retheme by swapping these two tokens. */
     --bg: #ffffff;
     --bg-header: #cbd8ea;
-    --header-band: 6.75rem;
+    --header-band: 10rem;
     --max-width: 46rem;
+    /* No dark mode, so pin the canvas the browser paints before CSS applies. */
+    color-scheme: light;
   }
 
   html {
@@ -57,7 +61,10 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
      than fixed, so it scrolls away instead of sitting under the content. The
      mask holds one pixel per dither dot and is tiled horizontally at a fixed
      height, which keeps the dots square at any viewport and independent of
-     its width. */
+     its width. --dither-mask is the generated data URI (see src/styles/
+     dither-mask.css): a mask-image is not render-blocking, so fetching the
+     mask as a file would let the band paint solid for a frame first. */
+
   html::before {
     content: "";
     position: absolute;
@@ -67,8 +74,8 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     height: var(--header-band);
     pointer-events: none;
     background-color: var(--bg-header);
-    -webkit-mask-image: url("/dither-mask.png");
-    mask-image: url("/dither-mask.png");
+    -webkit-mask-image: var(--dither-mask);
+    mask-image: var(--dither-mask);
     -webkit-mask-size: auto var(--header-band);
     mask-size: auto var(--header-band);
     -webkit-mask-repeat: repeat-x;
@@ -98,12 +105,11 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     display: flex;
     gap: 1rem;
     padding-bottom: 1rem;
-    border-bottom: 1px solid #e5e5e5;
-    /* Leaves room for the band's dither to finish above the h1. */
-    margin-bottom: 2.75rem;
+    margin-bottom: 8rem;
   }
 
   a {
+    text-decoration: none;
     color: var(--accent);
   }
 

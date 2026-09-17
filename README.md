@@ -41,9 +41,8 @@ Shared chrome (head, nav, base type styles) is in `src/layouts/Layout.astro`.
 ## Background
 
 The page is one solid colour. The header band starts as a second solid colour
-and ends in an ordered dither back into the body colour. `public/dither-mask.png`
-is a colourless 1-bit mask that CSS paints `--bg-header` through, so no pixel of
-the band is a blend of the two.
+and ends in an ordered dither back into the body colour. No pixel of the band
+is a blend of the two.
 
 | Token           | Role                                              |
 | --------------- | ------------------------------------------------- |
@@ -63,11 +62,20 @@ instead, and is generated, not hand-edited:
 | `bun run dither -- --hold 0.4`  | start dithering higher, shorter solid header |
 | `bun run dither -- --width 240` | mask tiles half as wide, same dot size       |
 
-`--hold` and `--header-band` are a pair: the default 0.62 of 6.75rem puts the
-solid/dither boundary on the header's bottom edge and finishes the dither above
-the `h1`, so the nav sits on flat colour and no content sits on texture. Keep
-the gradient vertical (the default `--angle 270`): the mask is tiled
-horizontally, so a tilted gradient would restart in every tile.
+`--hold` and `--header-band` are a pair: 0.62 of the band is held solid, which
+covers the nav, and the rest dithers into the body colour. `header`'s
+`margin-bottom` sets how much room the dither has before the `h1`. Keep the
+gradient vertical (the default `--angle 270`): the mask is tiled horizontally,
+so a tilted gradient would restart in every tile.
+
+The generator writes two files:
+
+- `src/styles/dither-mask.css` — the mask as a data URI, imported by
+  `Layout.astro`. It is inlined in the built HTML, so the band paints on the
+  first frame. A `mask-image` is not render-blocking, so fetching the mask as a
+  file instead lets the band paint solid for a frame before it dithers.
+- `public/dither-mask.png` — the same bytes, for eyeballing at
+  `/dither-mask.png`. Nothing loads it at runtime.
 
 ## Commands
 
