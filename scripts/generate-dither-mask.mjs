@@ -1,11 +1,13 @@
-// Generates the ordered-dither mask used by the site background.
+// Generates the ordered-dither mask used by the header ramp.
 //
 // The mask is colorless on purpose: it is a 1-bit ordered dither of a linear
-// gradient, so CSS can paint any two theme tokens through it.
+// gradient, so CSS can paint any two theme tokens through it. It is mostly
+// opaque at the top and fades to fully transparent at the bottom, which reads
+// as "solid header colour, dithered into the solid body colour".
 //
-//   bun run dither                 # defaults
-//   bun run dither -- --angle 135  # tilt the gradient
-//   bun run dither -- --width 640  # finer dither dots
+//   bun run dither                    # defaults
+//   bun run dither -- --hold 0        # no solid cap, dither from the first row
+//   bun run dither -- --height 270    # a mask for a full-page gradient instead
 //
 // Output: public/dither-mask.png (alpha 0 or 255, nearest-neighbour friendly).
 
@@ -20,19 +22,26 @@ const DEFAULTS = {
   // Mask resolution. One mask pixel becomes one dither dot on screen, so a
   // smaller mask means chunkier dots.
   width: 480,
-  aspect: 16 / 9,
-  // Degrees, y grows downward: 0 = left to right, 90 = top to bottom.
-  angle: 90,
+  height: 40,
+  // Degrees, y grows downward: 0 = left to right, 90 = top to bottom,
+  // 270 = bottom to top. Coverage grows along the angle.
+  angle: 270,
+  // Fraction of the ramp held at full coverage at the far end of the angle.
+  // 0.62 puts the solid/dither boundary at the header's bottom edge, so the
+  // nav sits on solid colour and the dither runs in the gap above the h1.
+  hold: 0.62,
   out: "public/dither-mask.png",
 };
 
 const USAGE = `
-Usage: bun run dither [-- width aspect angle out]
+Usage: bun run dither [-- width height angle hold out]
 
   --width    mask width in pixels; one mask pixel is one dither dot  (${DEFAULTS.width})
-  --aspect   mask width / height                                     (${DEFAULTS.aspect})
+  --height   mask height in pixels                                   (${DEFAULTS.height})
   --angle    gradient direction in degrees, y grows downward          (${DEFAULTS.angle})
-             0 = left to right, 90 = top to bottom
+             0 = left to right, 90 = top to bottom, 270 = bottom to top;
+             coverage grows along the angle
+  --hold     fraction held solid at the far end of the angle          (${DEFAULTS.hold})
   --out      output path, relative to the repo root                  (${DEFAULTS.out})
 `;
 
@@ -116,20 +125,24 @@ function encodePng(width, height, rgba) {
   ]);
 }
 
-function build({ width, aspect, angle }) {
-  const height = Math.round(width / aspect);
+function build({ width, height, angle, hold }) {
   const threshold = bayer(8);
   const rad = (angle * Math.PI) / 180;
   const dx = Math.cos(rad);
   const dy = Math.sin(rad);
+  // Projection onto the angle spans [min, max]; shift and scale it to [0, 1].
   const span = Math.abs(dx) + Math.abs(dy);
+  const min = Math.min(0, dx) + Math.min(0, dy);
 
   const rgba = Buffer.alloc(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const u = (x + 0.5) / width;
       const v = (y + 0.5) / height;
-      const t = (u * dx + v * dy) / span;
+      // Coverage along the angle, then squeeze the ramp so the far end holds
+      // at full coverage instead of dithering all the way to the corner.
+      const ramp = (u * dx + v * dy - min) / span;
+      const t = Math.min(1, ramp / (1 - hold));
       const bias = (threshold[y % 8][x % 8] + 0.5) / 64;
       const i = (y * width + x) * 4 + 3;
       rgba[i] = t > bias ? 255 : 0;

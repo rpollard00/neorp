@@ -40,27 +40,34 @@ Shared chrome (head, nav, base type styles) is in `src/layouts/Layout.astro`.
 
 ## Background
 
-The page background is a two-colour ordered dither of a gradient.
-`public/dither-mask.png` is a colourless 1-bit mask; CSS paints theme tokens
-through it, so no pixel of the background is a blend of the two.
+The page is one solid colour. The header band starts as a second solid colour
+and ends in an ordered dither back into the body colour. `public/dither-mask.png`
+is a colourless 1-bit mask that CSS paints `--bg-header` through, so no pixel of
+the band is a blend of the two.
 
-| Token         | Role                              |
-| ------------- | --------------------------------- |
-| `--bg`        | base colour (top of the gradient) |
-| `--bg-dither` | second colour, dithered over it   |
+| Token           | Role                                              |
+| --------------- | ------------------------------------------------- |
+| `--bg`          | body colour; the whole page below the header band |
+| `--bg-header`   | solid colour at the top, dithered into `--bg`     |
+| `--header-band` | height of the band: solid part plus dither        |
 
-Retheming is only those two values in `src/layouts/Layout.astro`. The mask is
-generated, not hand-edited:
+Retheming is only the first two values, in `src/layouts/Layout.astro`.
 
-| Command                         | Effect                   |
-| ------------------------------- | ------------------------ |
-| `bun run dither`                | regenerate with defaults |
-| `bun run dither -- --angle 135` | tilt the gradient        |
-| `bun run dither -- --width 640` | finer dither dots        |
+Dither dots are `--header-band` / 40, so one token sets both dot size and how
+far the dither reaches down the page. The mask decides the shape of the ramp
+instead, and is generated, not hand-edited:
 
-Keep the gradient near vertical (the default `--angle 90`): the mask is scaled
-with `mask-size: cover`, so odd viewport ratios crop the gradient instead of
-stretching it, which keeps the dither dots square.
+| Command                         | Effect                                       |
+| ------------------------------- | -------------------------------------------- |
+| `bun run dither`                | regenerate the shipped mask                  |
+| `bun run dither -- --hold 0.4`  | start dithering higher, shorter solid header |
+| `bun run dither -- --width 240` | mask tiles half as wide, same dot size       |
+
+`--hold` and `--header-band` are a pair: the default 0.62 of 6.75rem puts the
+solid/dither boundary on the header's bottom edge and finishes the dither above
+the `h1`, so the nav sits on flat colour and no content sits on texture. Keep
+the gradient vertical (the default `--angle 270`): the mask is tiled
+horizontally, so a tilted gradient would restart in every tile.
 
 ## Commands
 

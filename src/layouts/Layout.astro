@@ -38,12 +38,44 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     --fg: #1a1a1a;
     --muted: #666;
     --accent: #0b5cad;
-    /* Background is a two-colour dithered gradient. Retheme by swapping
-       these two tokens; regenerate public/dither-mask.png to change the
-       direction or dither dot size (`bun run dither --help`). */
+    /* The page is one solid colour. The header band starts as a second solid
+       colour and ordered-dithers into the body colour over its last stretch.
+       Retheme by swapping these two tokens. */
     --bg: #ffffff;
-    --bg-dither: #cbd8ea;
+    --bg-header: #cbd8ea;
+    --header-band: 6.75rem;
     --max-width: 46rem;
+  }
+
+  html {
+    position: relative;
+    background-color: var(--bg);
+  }
+
+  /* Header band: solid --bg-header down to the header's bottom edge, then
+     ordered-dithered into --bg by the bottom of the band. Absolute rather
+     than fixed, so it scrolls away instead of sitting under the content. The
+     mask holds one pixel per dither dot and is tiled horizontally at a fixed
+     height, which keeps the dots square at any viewport and independent of
+     its width. */
+  html::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: var(--header-band);
+    pointer-events: none;
+    background-color: var(--bg-header);
+    -webkit-mask-image: url("/dither-mask.png");
+    mask-image: url("/dither-mask.png");
+    -webkit-mask-size: auto var(--header-band);
+    mask-size: auto var(--header-band);
+    -webkit-mask-repeat: repeat-x;
+    mask-repeat: repeat-x;
+    image-rendering: pixelated;
+    /* Above the page background, below every in-flow box. */
+    z-index: -1;
   }
 
   body {
@@ -51,7 +83,6 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     padding: 1.5rem 1rem 4rem;
     max-width: var(--max-width);
     color: var(--fg);
-    background-color: var(--bg);
     font-family:
       system-ui,
       -apple-system,
@@ -63,32 +94,13 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     line-height: 1.6;
   }
 
-  /* Fixed layer above the base colour, painted through a 1-bit ordered
-     dither mask, so every pixel is exactly --bg or --bg-dither. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background-color: var(--bg-dither);
-    -webkit-mask-image: url("/dither-mask.png");
-    mask-image: url("/dither-mask.png");
-    -webkit-mask-size: cover;
-    mask-size: cover;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    mask-position: center;
-    image-rendering: pixelated;
-  }
-
   header {
     display: flex;
     gap: 1rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid #e5e5e5;
-    margin-bottom: 2rem;
+    /* Leaves room for the band's dither to finish above the h1. */
+    margin-bottom: 2.75rem;
   }
 
   a {
