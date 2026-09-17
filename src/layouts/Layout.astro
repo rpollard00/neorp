@@ -38,6 +38,11 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     --fg: #1a1a1a;
     --muted: #666;
     --accent: #0b5cad;
+    /* Background is a two-colour dithered gradient. Retheme by swapping
+       these two tokens; regenerate public/dither-mask.png to change the
+       direction or dither dot size (`bun run dither --help`). */
+    --bg: #ffffff;
+    --bg-dither: #cbd8ea;
     --max-width: 46rem;
   }
 
@@ -46,7 +51,7 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     padding: 1.5rem 1rem 4rem;
     max-width: var(--max-width);
     color: var(--fg);
-    background: #fff;
+    background-color: var(--bg);
     font-family:
       system-ui,
       -apple-system,
@@ -56,6 +61,26 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
       Arial,
       sans-serif;
     line-height: 1.6;
+  }
+
+  /* Fixed layer above the base colour, painted through a 1-bit ordered
+     dither mask, so every pixel is exactly --bg or --bg-dither. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-color: var(--bg-dither);
+    -webkit-mask-image: url("/dither-mask.png");
+    mask-image: url("/dither-mask.png");
+    -webkit-mask-size: cover;
+    mask-size: cover;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    image-rendering: pixelated;
   }
 
   header {

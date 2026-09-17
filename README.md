@@ -38,6 +38,30 @@ Shared chrome (head, nav, base type styles) is in `src/layouts/Layout.astro`.
 `src/layouts/PostLayout.astro` wraps a single post. List helpers live in
 `src/utils/posts.ts`.
 
+## Background
+
+The page background is a two-colour ordered dither of a gradient.
+`public/dither-mask.png` is a colourless 1-bit mask; CSS paints theme tokens
+through it, so no pixel of the background is a blend of the two.
+
+| Token         | Role                              |
+| ------------- | --------------------------------- |
+| `--bg`        | base colour (top of the gradient) |
+| `--bg-dither` | second colour, dithered over it   |
+
+Retheming is only those two values in `src/layouts/Layout.astro`. The mask is
+generated, not hand-edited:
+
+| Command                         | Effect                   |
+| ------------------------------- | ------------------------ |
+| `bun run dither`                | regenerate with defaults |
+| `bun run dither -- --angle 135` | tilt the gradient        |
+| `bun run dither -- --width 640` | finer dither dots        |
+
+Keep the gradient near vertical (the default `--angle 90`): the mask is scaled
+with `mask-size: cover`, so odd viewport ratios crop the gradient instead of
+stretching it, which keeps the dither dots square.
+
 ## Commands
 
 | Command           | Action                         |
