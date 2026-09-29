@@ -9,10 +9,12 @@
 //   bun run dither -- --hold 0        # no solid cap, dither from the first row
 //   bun run dither -- --height 270    # a mask for a full-page gradient instead
 //
-// Writes the mask twice: a PNG for eyeballing, and a CSS data URI that the site
+// Writes the mask twice: an SVG for eyeballing, and a CSS data URI that the site
 // actually paints through. Both come from one run, so they cannot drift.
+//
+// The mask is vector, not a PNG: Safari on iOS ignores image-rendering for a
+// mask and smooths a scaled raster, which blurs every dot.
 
-import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,10 +33,10 @@ const DEFAULTS = {
   // 0.62 puts the solid/dither boundary at the header's bottom edge, so the
   // nav sits on solid colour and the dither runs in the gap above the h1.
   hold: 0.62,
-  // The PNG is the inspectable copy of the mask. The CSS holds the same bytes
+  // The SVG is the inspectable copy of the mask. The CSS holds the same markup
   // as a data URI, because a mask-image is not render-blocking: a separate
   // request would let the band paint solid for a frame before it dithers.
-  out: "public/dither-mask.png",
+  out: "public/dither-mask.svg",
   css: "src/styles/dither-mask.css",
 };
 
@@ -47,7 +49,7 @@ Usage: bun run dither [-- width height angle hold out css]
              0 = left to right, 90 = top to bottom, 270 = bottom to top;
              coverage grows along the angle
   --hold     fraction held solid at the far end of the angle          (${DEFAULTS.hold})
-  --out      PNG output path, relative to the repo root               (${DEFAULTS.out})
+  --out      SVG output path, relative to the repo root               (${DEFAULTS.out})
   --css      CSS output path; holds the inlined data URI              (${DEFAULTS.css})
 `;
 
@@ -88,51 +90,6 @@ function bayer(size) {
   return out;
 }
 
-const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-
-function crc32(buf) {
-  let c = 0xffffffff;
-  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-function chunk(type, data) {
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(data.length, 0);
-  head.write(type, 4, "ascii");
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
-  return Buffer.concat([head, data, crc]);
-}
-
-function encodePng(width, height, rgba) {
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // truecolour with alpha
-  // 10-12: deflate, adaptive filtering, no interlace
-
-  // One filter byte (0 = none) per scanline.
-  const raw = Buffer.alloc(height * (1 + width * 4));
-  for (let y = 0; y < height; y++) {
-    const from = y * width * 4;
-    raw[y * (1 + width * 4)] = 0;
-    rgba.copy(raw, y * (1 + width * 4) + 1, from, from + width * 4);
-  }
-
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw, { level: 9 })),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
 function build({ width, height, angle, hold }) {
   const threshold = bayer(8);
   const rad = (angle * Math.PI) / 180;
@@ -142,7 +99,7 @@ function build({ width, height, angle, hold }) {
   const span = Math.abs(dx) + Math.abs(dy);
   const min = Math.min(0, dx) + Math.min(0, dy);
 
-  const rgba = Buffer.alloc(width * height * 4);
+  const opaque = Array.from({ length: height }, () => new Array(width));
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const u = (x + 0.5) / width;
@@ -152,21 +109,38 @@ function build({ width, height, angle, hold }) {
       const ramp = (u * dx + v * dy - min) / span;
       const t = Math.min(1, ramp / (1 - hold));
       const bias = (threshold[y % 8][x % 8] + 0.5) / 64;
-      const i = (y * width + x) * 4 + 3;
-      rgba[i] = t > bias ? 255 : 0;
+      opaque[y][x] = t > bias;
     }
   }
 
-  return { width, height, rgba };
+  return opaque;
+}
+
+/** One rectangle per horizontal run of opaque dots. */
+function encodeSvg(opaque) {
+  const height = opaque.length;
+  const width = opaque[0].length;
+  const runs = opaque.flatMap((row, y) =>
+    row.flatMap((on, x) => {
+      if (!on || row[x - 1]) return [];
+      let end = x;
+      while (row[end]) end++;
+      return [`M${x} ${y}h${end - x}v1h-${end - x}z`];
+    }),
+  );
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" shape-rendering="crispEdges"><path d="${runs.join("")}"/></svg>`;
 }
 
 const opts = parseArgs(process.argv.slice(2));
-const { width, height, rgba } = build(opts);
-const png = encodePng(width, height, rgba);
+// One extra copy of the last row sits below the mask. At fractional device
+// scales the renderer samples one row past the tile and wraps to the opaque
+// first row; the copy takes that bleed, and the element clips it.
+const mask = build(opts);
+const svg = encodeSvg([...mask, mask[mask.length - 1]]);
 
 const out = resolve(ROOT, opts.out);
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, png);
+writeFileSync(out, `${svg}\n`);
 
 const css = resolve(ROOT, opts.css);
 mkdirSync(dirname(css), { recursive: true });
@@ -174,11 +148,11 @@ writeFileSync(
   css,
   `/* Generated by scripts/generate-dither-mask.mjs — do not edit. */
 :root {
-  --dither-mask: url("data:image/png;base64,${png.toString("base64")}");
+  --dither-mask: url("data:image/svg+xml,${encodeURIComponent(svg)}");
 }
 `,
 );
 
-const summary = `${width}×${height}, gradient ${opts.angle}°, hold ${opts.hold}`;
+const summary = `${opts.width}×${opts.height}, gradient ${opts.angle}°, hold ${opts.hold}`;
 console.log(`${opts.out} — ${summary}`);
-console.log(`${opts.css} — inlined ${png.length} B mask, no request at paint`);
+console.log(`${opts.css} — inlined ${svg.length} B mask, no request at paint`);

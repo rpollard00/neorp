@@ -71,24 +71,30 @@ The mask is generated, not hand-edited. This command makes the shipped mask:
 bun run dither -- --width 64 --height 12 --hold 0
 ```
 
-| Argument      | Effect                                                                                                           |
-| ------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `--width 64`  | Width of one mask tile, in dots. The dither pattern repeats every 8 dots, so this value sets only the tile size. |
-| `--height 12` | Number of dither rows. It must match the `12` in the `.edge` height and mask size in `Layout.astro`.             |
-| `--hold 0`    | No solid rows in the mask. The chrome field is the solid part, so the dither starts on the first row.            |
-| `--angle`     | Not given, so 270. Coverage increases from bottom to top, and the mask is opaque at the top.                     |
+| Argument      | Effect                                                                                                                                                                                       |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--width 64`  | Width of one mask tile, in dots. The dither pattern repeats every 8 dots, so this value sets only the tile size.                                                                             |
+| `--height 12` | Number of dither rows. It must match the `12` in the `.edge` height in `Layout.astro`. The mask size there is one row more (`13`), because the SVG repeats its last row once below the mask. |
+| `--hold 0`    | No solid rows in the mask. The chrome field is the solid part, so the dither starts on the first row.                                                                                        |
+| `--angle`     | Not given, so 270. Coverage increases from bottom to top, and the mask is opaque at the top.                                                                                                 |
 
 Do not run `bun run dither` without arguments. The defaults (480×40, hold 0.62)
 make a different mask that does not fit the edge. Keep the gradient vertical.
 The mask tiles horizontally, so a tilted gradient starts again in each tile.
+
+The mask is an SVG of square runs, not a PNG. Safari on iOS ignores
+`image-rendering` for a mask and smooths a scaled PNG, so a PNG mask shows
+blurred dots on an iPhone. Keep `image-rendering: pixelated` on `.edge`:
+Chromium needs it to keep the SVG dots sharp at fractional device scales, such
+as 2.625 on many Android phones.
 
 The generator writes two files:
 
 - `src/styles/dither-mask.css`: the mask as a data URI in `--dither-mask`.
   `Layout.astro` imports it, so the mask is part of the site stylesheet and
   the edge needs no extra request before it paints.
-- `public/dither-mask.png`: the same bytes, for inspection at
-  `/dither-mask.png`. Nothing loads it at runtime.
+- `public/dither-mask.svg`: the same markup, for inspection at
+  `/dither-mask.svg`. Nothing loads it at runtime.
 
 The checker (the blockquote bar and the break under the article intro) uses the
 same method. It paints `--text` through `--checker-mask`, a 2×2 SVG shown at
