@@ -73,12 +73,15 @@ const current = (href: string) =>
 
 <style is:global>
   :root {
-    --paper: #f5f0e6;
-    --ink: #1c1a24;
+    --page: #f5f0e6;
+    --text: #1c1a24;
     --muted: #5f596b;
-    --muted-on-ink: #a7a1b3;
+    --chrome: #1c1a24;
+    --on-chrome: #f5f0e6;
+    --muted-on-chrome: #a7a1b3;
     --pop: #2b3dff;
-    --on-pop: var(--paper);
+    --on-pop: #f5f0e6;
+    --pop-text: #2b3dff;
     --sans:
       "Inter", "Helvetica Neue", "Noto Sans", Arial, system-ui, sans-serif;
     --mono:
@@ -105,7 +108,7 @@ const current = (href: string) =>
   }
 
   html {
-    background: var(--paper);
+    background: var(--page);
   }
 
   body {
@@ -113,7 +116,7 @@ const current = (href: string) =>
     flex-direction: column;
     min-height: 100vh;
     margin: 0;
-    color: var(--ink);
+    color: var(--text);
     font: 1.0625rem/1.7 var(--sans);
   }
 
@@ -122,13 +125,13 @@ const current = (href: string) =>
   }
 
   :focus-visible {
-    outline: 2px solid var(--ink);
+    outline: 2px solid var(--text);
     outline-offset: 3px;
   }
 
   .masthead :focus-visible,
   .site-footer :focus-visible {
-    outline-color: var(--paper);
+    outline-color: var(--on-chrome);
   }
 
   .wrap {
@@ -139,8 +142,8 @@ const current = (href: string) =>
   }
 
   .masthead {
-    background: var(--ink);
-    color: var(--paper);
+    background: var(--chrome);
+    color: var(--on-chrome);
   }
 
   .site {
@@ -175,10 +178,10 @@ const current = (href: string) =>
     text-underline-offset: 4px;
   }
 
-  /* Ink through the colourless dither mask: one mask pixel per --px dot. */
+  /* Chrome through the colourless dither mask: one mask pixel per --px dot. */
   .edge {
     height: calc(12 * var(--px));
-    background: var(--ink);
+    background: var(--chrome);
     -webkit-mask-image: var(--dither-mask);
     mask-image: var(--dither-mask);
     -webkit-mask-size: auto calc(12 * var(--px));
@@ -202,8 +205,8 @@ const current = (href: string) =>
   }
 
   .foot {
-    background: var(--ink);
-    color: var(--paper);
+    background: var(--chrome);
+    color: var(--on-chrome);
   }
 
   .foot .wrap {
@@ -256,7 +259,7 @@ const current = (href: string) =>
   .section-label {
     margin: 3rem 0 0;
     padding-bottom: 0.75rem;
-    border-bottom: 2px solid var(--ink);
+    border-bottom: 2px solid var(--text);
     font: 500 0.75rem/1 var(--mono);
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -289,7 +292,7 @@ const current = (href: string) =>
   .checker,
   .prose blockquote::before,
   .prose hr {
-    background: var(--ink);
+    background: var(--text);
     -webkit-mask: var(--checker-mask) 0 0 / 4px 4px repeat;
     mask: var(--checker-mask) 0 0 / 4px 4px repeat;
   }
@@ -332,7 +335,7 @@ const current = (href: string) =>
   }
 
   .prose a {
-    color: var(--pop);
+    color: var(--pop-text);
     text-decoration: underline 2px;
     text-underline-offset: 3px;
   }
@@ -344,7 +347,7 @@ const current = (href: string) =>
 
   .prose code {
     padding: 0.1em 0.3em;
-    background: color-mix(in srgb, var(--ink) 7%, transparent);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
     font: 0.85em var(--mono);
   }
 

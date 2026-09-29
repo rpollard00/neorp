@@ -54,8 +54,8 @@ const { url, palette, number, caption, size } = Astro.props;
     align-items: center;
     gap: 0.75rem;
     padding: 0.45rem 0.5rem;
-    background: var(--ink);
-    color: var(--paper);
+    background: var(--chrome);
+    color: var(--on-chrome);
     font: 500 0.6875rem/1 var(--mono);
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -69,7 +69,7 @@ const { url, palette, number, caption, size } = Astro.props;
 
   .palette {
     margin-left: auto;
-    color: var(--muted-on-ink);
+    color: var(--muted-on-chrome);
   }
 
   /* Each step drops a scale where the next one no longer fits the column

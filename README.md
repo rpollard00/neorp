@@ -55,11 +55,11 @@ links must be absolute, so the feed uses `site` in `astro.config.mjs`
 
 ## Header and footer edge
 
-The header and the footer are solid `--ink` fields on a `--paper` page. Each
-field ends in an ordered dither into the paper. No pixel of the edge is a blend
-of the two colours.
+The header and the footer are solid `--chrome` fields on a `--page` background.
+Each field ends in an ordered dither into the page. No pixel of the edge is a
+blend of the two colours.
 
-The edge is an element that paints `--ink` through a colourless mask. One mask
+The edge is an element that paints `--chrome` through a colourless mask. One mask
 pixel is one dither dot of `--px` (4px, or 3px on narrow screens). The mask has
 12 rows, so the edge is `12 * --px` tall. The footer uses the same mask, flipped
 vertically. The colour tokens are in `:root` in `src/layouts/Layout.astro`.
@@ -75,7 +75,7 @@ bun run dither -- --width 64 --height 12 --hold 0
 | ------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `--width 64`  | Width of one mask tile, in dots. The dither pattern repeats every 8 dots, so this value sets only the tile size. |
 | `--height 12` | Number of dither rows. It must match the `12` in the `.edge` height and mask size in `Layout.astro`.             |
-| `--hold 0`    | No solid rows in the mask. The ink field is the solid part, so the dither starts on the first row.               |
+| `--hold 0`    | No solid rows in the mask. The chrome field is the solid part, so the dither starts on the first row.            |
 | `--angle`     | Not given, so 270. Coverage increases from bottom to top, and the mask is opaque at the top.                     |
 
 Do not run `bun run dither` without arguments. The defaults (480×40, hold 0.62)
@@ -91,7 +91,7 @@ The generator writes two files:
   `/dither-mask.png`. Nothing loads it at runtime.
 
 The checker (the blockquote bar and the break under the article intro) uses the
-same method. It paints `--ink` through `--checker-mask`, a 2×2 SVG shown at
+same method. It paints `--text` through `--checker-mask`, a 2×2 SVG shown at
 4px × 4px, so each square is 2px.
 
 ## Commands
