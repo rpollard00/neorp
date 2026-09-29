@@ -287,10 +287,18 @@ const current = (href: string) =>
   }
 
   .checker,
-  .prose blockquote::before {
+  .prose blockquote::before,
+  .prose hr {
     background: var(--ink);
     -webkit-mask: var(--checker-mask) 0 0 / 4px 4px repeat;
     mask: var(--checker-mask) 0 0 / 4px 4px repeat;
+  }
+
+  /* A Markdown `---` is the same checker break as the one under the intro. */
+  .prose hr {
+    height: 8px;
+    margin: 2.5rem 0;
+    border: 0;
   }
 
   /* The marker is positioned, not a flex item: a flex h2 would split inline

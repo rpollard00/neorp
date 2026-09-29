@@ -1,6 +1,6 @@
 ---
-title: Posters Disease
-description: This is all a trick
+title: Posters disease
+description: This is all a trick.
 pubDate: 2026-09-14
 tags: [demo]
 ---

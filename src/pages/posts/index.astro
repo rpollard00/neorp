@@ -1,13 +1,26 @@
 ---
 import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
+import Plate from "../../components/Plate.astro";
 import PostList from "../../components/PostList.astro";
+import { plateFor } from "../../lib/plates";
 import { numberPosts } from "../../utils/posts";
 
 const posts = numberPosts(await getCollection("posts"));
+const [latest] = posts;
+const plate = latest && plateFor(latest.post);
 ---
 
 <Layout title="Posts" description="All posts, newest first.">
+  {latest && plate && (
+    <Plate
+      url={plate.url}
+      palette={plate.palette}
+      number={latest.number}
+      caption="Latest"
+      size="hero"
+    />
+  )}
   <div class="intro">
     <p class="kicker">Neorp / posts</p>
     <h1>Posts</h1>
