@@ -1,8 +1,8 @@
 # Design
 
-Status: **provisional**. The user approved this direction from mockups on
-2026-09-28. The production pages are under validation. Rules become
-established when the user accepts the rendered site.
+Status: **established**. The user approved this direction from mockups on
+2026-09-28 and accepted the rendered site on the same day. Change a rule only
+when the user approves the change.
 
 Next open questions: dark mode and typeface choices.
 
