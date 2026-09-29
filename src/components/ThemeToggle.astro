@@ -11,9 +11,21 @@ const ICON = [
 const SIZE = 7;
 const SCALE = 2;
 
-const path = ICON.flatMap((row, y) =>
-  [...row].flatMap((cell, x) => (cell === "#" ? [`M${x} ${y}h1v1h-1z`] : [])),
-).join("");
+const cells = ICON.flatMap((row, y) =>
+  [...row].map((cell, x) => ({
+    x,
+    y,
+    light: cell === "#",
+    dark: row[SIZE - 1 - x] === "#",
+  })),
+);
+type Cell = (typeof cells)[number];
+
+const path = (keep: (cell: Cell) => boolean) =>
+  cells
+    .filter(keep)
+    .map(({ x, y }) => `M${x} ${y}h1v1h-1z`)
+    .join("");
 ---
 
 <button
@@ -22,7 +34,6 @@ const path = ICON.flatMap((row, y) =>
   aria-pressed="false"
   aria-label="Dark mode"
   title="Dark mode"
-  hidden
 >
   <svg
     viewBox={`0 0 ${SIZE} ${SIZE}`}
@@ -33,7 +44,9 @@ const path = ICON.flatMap((row, y) =>
     aria-hidden="true"
     focusable="false"
   >
-    <path d={path}></path>
+    <path d={path((cell) => cell.light && cell.dark)}></path>
+    <path class="light" d={path((cell) => cell.light && !cell.dark)}></path>
+    <path class="dark" d={path((cell) => cell.dark && !cell.light)}></path>
   </svg>
 </button>
 
@@ -51,8 +64,10 @@ const path = ICON.flatMap((row, y) =>
     cursor: pointer;
   }
 
-  .theme-toggle[hidden] {
-    display: none;
+  @media (scripting: none) {
+    .theme-toggle {
+      display: none;
+    }
   }
 
   @supports not (color: light-dark(#000, #000)) {
@@ -75,8 +90,12 @@ const path = ICON.flatMap((row, y) =>
     display: block;
   }
 
-  .theme-toggle[aria-pressed="true"] svg {
-    transform: scaleX(-1);
+  .light {
+    fill: light-dark(currentColor, transparent);
+  }
+
+  .dark {
+    fill: light-dark(transparent, currentColor);
   }
 </style>
 
@@ -138,6 +157,5 @@ const path = ICON.flatMap((row, y) =>
     });
 
     sync();
-    button.hidden = false;
   }
 </script>
