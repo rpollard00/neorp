@@ -228,6 +228,17 @@ const current = (href: string) =>
     transform: scaleY(-1);
   }
 
+  /* The mask is not snapped to device pixels, so at fractional scales a
+     hairline of page shows where a field meets its edge. 1px of chrome under
+     the edge's opaque first row covers it. */
+  .masthead {
+    box-shadow: 0 1px 0 var(--chrome);
+  }
+
+  .foot {
+    box-shadow: 0 -1px 0 var(--chrome);
+  }
+
   main {
     flex: 1;
     padding-top: 3rem;
