@@ -25,6 +25,7 @@ const current = (href: string) =>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" href="/favicon.ico" />
     <link
@@ -73,15 +74,16 @@ const current = (href: string) =>
 
 <style is:global>
   :root {
-    --page: #f5f0e6;
-    --text: #1c1a24;
-    --muted: #5f596b;
+    color-scheme: light dark;
+    --page: light-dark(#f5f0e6, #3b3a45);
+    --text: light-dark(#1c1a24, #e9e8ee);
+    --muted: light-dark(#5f596b, #b9b8c8);
     --chrome: #1c1a24;
     --on-chrome: #f5f0e6;
     --muted-on-chrome: #a7a1b3;
-    --pop: #2b3dff;
+    --pop: light-dark(#2b3dff, #cc0078);
     --on-pop: #f5f0e6;
-    --pop-text: #2b3dff;
+    --pop-text: light-dark(#2b3dff, #ff85c2);
     --sans:
       "Inter", "Helvetica Neue", "Noto Sans", Arial, system-ui, sans-serif;
     --mono:
@@ -91,8 +93,27 @@ const current = (href: string) =>
     --gutter: 1.25rem;
     --px: 4px;
     --checker-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2' viewBox='0 0 2 2' shape-rendering='crispEdges'><rect width='1' height='1'/><rect x='1' y='1' width='1' height='1'/></svg>");
-    /* No dark mode, so pin the canvas the browser paints before CSS applies. */
+  }
+
+  /* Without light-dark() every themed token is invalid, not light, so these
+     browsers get the light theme explicitly. */
+  @supports not (color: light-dark(#000, #000)) {
+    :root {
+      color-scheme: light;
+      --page: #f5f0e6;
+      --text: #1c1a24;
+      --muted: #5f596b;
+      --pop: #2b3dff;
+      --pop-text: #2b3dff;
+    }
+  }
+
+  :root[data-theme="light"] {
     color-scheme: light;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
   }
 
   @media (max-width: 40rem) {
