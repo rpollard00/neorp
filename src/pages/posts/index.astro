@@ -2,12 +2,24 @@
 import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
 import PostList from "../../components/PostList.astro";
-import { sortPosts } from "../../utils/posts";
+import { numberPosts } from "../../utils/posts";
 
-const posts = sortPosts(await getCollection("posts"));
+const posts = numberPosts(await getCollection("posts"));
 ---
 
 <Layout title="Posts" description="All posts, newest first.">
-  <h1>Posts</h1>
-  <PostList posts={posts} />
+  <div class="intro">
+    <p class="kicker">Neorp / posts</p>
+    <h1>Posts</h1>
+  </div>
+  <div class="list">
+    <PostList posts={posts} />
+  </div>
 </Layout>
+
+<style>
+  .list {
+    margin-top: 2rem;
+    border-top: 2px solid var(--ink);
+  }
+</style>

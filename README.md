@@ -18,64 +18,81 @@ the name of its file. Frontmatter schema lives in `src/content.config.ts`:
 ---
 title: Post title # required
 description: One line shown in the list and in <meta>
-pubDate: 2026-09-14 # optional; undated posts sort to the bottom
+pubDate: 2026-09-14 # required
 tags: [demo] # optional
+plate: dusk # optional; the palette of the plate
 ---
 ```
+
+Each post has a plate: a 160×60 pixel landscape that the build draws from a
+palette and a seed. The palette names are in `src/lib/palettes.ts`. If a post
+has no `plate:`, the slug selects the palette. The slug also sets the shape of
+the landscape. Posts get numbers by date. The oldest post is 01.
 
 MDX files can import components: `import Foo from "../../components/Foo.astro"`.
 
 ## Routes
 
-| Path             | Source                            |
-| ---------------- | --------------------------------- |
-| `/`              | `src/pages/index.astro`           |
-| `/posts/`        | `src/pages/posts/index.astro`     |
-| `/posts/<slug>/` | `src/pages/posts/[...slug].astro` |
-| `/about/`        | `src/pages/about.astro`           |
+| Path                 | Source                              |
+| -------------------- | ----------------------------------- |
+| `/`                  | `src/pages/index.astro`             |
+| `/posts/`            | `src/pages/posts/index.astro`       |
+| `/posts/<slug>/`     | `src/pages/posts/[...slug].astro`   |
+| `/about/`            | `src/pages/about.astro`             |
+| `/plates/<slug>.png` | `src/pages/plates/[...slug].png.ts` |
+| `/rss.xml`           | `src/pages/rss.xml.ts`              |
 
-Shared chrome (head, nav, base type styles) is in `src/layouts/Layout.astro`.
-`src/layouts/PostLayout.astro` wraps a single post. List helpers live in
-`src/utils/posts.ts`.
+Shared chrome (head, header, footer, tokens, base styles) is in
+`src/layouts/Layout.astro`. `src/layouts/PostLayout.astro` wraps a single post.
+List helpers live in `src/utils/posts.ts`. The plate drawing code is in
+`src/lib/plates.ts`. The site name, the site description, and the feed path are
+in `src/site.ts`.
 
-## Background
+The RSS feed lists every post with its title, description, date, and tags. Feed
+links must be absolute, so the feed uses `site` in `astro.config.mjs`
+(`https://reesep.com`). If the domain changes, change `site`. The build fails if
+`site` is not set.
 
-The page is one solid colour. The header band starts as a second solid colour
-and ends in an ordered dither back into the body colour. No pixel of the band
-is a blend of the two.
+## Header and footer edge
 
-| Token           | Role                                              |
-| --------------- | ------------------------------------------------- |
-| `--bg`          | body colour; the whole page below the header band |
-| `--bg-header`   | solid colour at the top, dithered into `--bg`     |
-| `--header-band` | height of the band: solid part plus dither        |
+The header and the footer are solid `--ink` fields on a `--paper` page. Each
+field ends in an ordered dither into the paper. No pixel of the edge is a blend
+of the two colours.
 
-Retheming is only the first two values, in `src/layouts/Layout.astro`.
+The edge is an element that paints `--ink` through a colourless mask. One mask
+pixel is one dither dot of `--px` (4px, or 3px on narrow screens). The mask has
+12 rows, so the edge is `12 * --px` tall. The footer uses the same mask, flipped
+vertically. The colour tokens are in `:root` in `src/layouts/Layout.astro`.
+`DESIGN.md` gives the rules for each token.
 
-Dither dots are `--header-band` / 40, so one token sets both dot size and how
-far the dither reaches down the page. The mask decides the shape of the ramp
-instead, and is generated, not hand-edited:
+The mask is generated, not hand-edited. This command makes the shipped mask:
 
-| Command                         | Effect                                       |
-| ------------------------------- | -------------------------------------------- |
-| `bun run dither`                | regenerate the shipped mask                  |
-| `bun run dither -- --hold 0.4`  | start dithering higher, shorter solid header |
-| `bun run dither -- --width 240` | mask tiles half as wide, same dot size       |
+```sh
+bun run dither -- --width 64 --height 12 --hold 0
+```
 
-`--hold` and `--header-band` are a pair: 0.62 of the band is held solid, which
-covers the nav, and the rest dithers into the body colour. `header`'s
-`margin-bottom` sets how much room the dither has before the `h1`. Keep the
-gradient vertical (the default `--angle 270`): the mask is tiled horizontally,
-so a tilted gradient would restart in every tile.
+| Argument      | Effect                                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `--width 64`  | Width of one mask tile, in dots. The dither pattern repeats every 8 dots, so this value sets only the tile size. |
+| `--height 12` | Number of dither rows. It must match the `12` in the `.edge` height and mask size in `Layout.astro`.             |
+| `--hold 0`    | No solid rows in the mask. The ink field is the solid part, so the dither starts on the first row.               |
+| `--angle`     | Not given, so 270. Coverage increases from bottom to top, and the mask is opaque at the top.                     |
+
+Do not run `bun run dither` without arguments. The defaults (480×40, hold 0.62)
+make a different mask that does not fit the edge. Keep the gradient vertical.
+The mask tiles horizontally, so a tilted gradient starts again in each tile.
 
 The generator writes two files:
 
-- `src/styles/dither-mask.css` — the mask as a data URI, imported by
-  `Layout.astro`. It is inlined in the built HTML, so the band paints on the
-  first frame. A `mask-image` is not render-blocking, so fetching the mask as a
-  file instead lets the band paint solid for a frame before it dithers.
-- `public/dither-mask.png` — the same bytes, for eyeballing at
+- `src/styles/dither-mask.css`: the mask as a data URI in `--dither-mask`.
+  `Layout.astro` imports it, so the mask is part of the site stylesheet and
+  the edge needs no extra request before it paints.
+- `public/dither-mask.png`: the same bytes, for inspection at
   `/dither-mask.png`. Nothing loads it at runtime.
+
+The checker (the blockquote bar and the break under the article intro) uses the
+same method. It paints `--ink` through `--checker-mask`, a 2×2 SVG shown at
+4px × 4px, so each square is 2px.
 
 ## Commands
 

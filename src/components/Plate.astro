@@ -1,0 +1,114 @@
+---
+import type { PaletteName } from "../lib/palettes";
+import { PLATE_HEIGHT, PLATE_WIDTH } from "../lib/plates";
+import { formatNumber } from "../utils/posts";
+
+interface Props {
+  url: string;
+  palette: PaletteName;
+  number: number;
+  caption: string;
+  size: "hero" | "cover";
+}
+
+const { url, palette, number, caption, size } = Astro.props;
+---
+
+<figure
+  class:list={["plate", size]}
+  style={`--plate-width: ${PLATE_WIDTH}px`}
+  aria-hidden="true"
+>
+  <img src={url} width={PLATE_WIDTH} height={PLATE_HEIGHT} alt="" />
+  <figcaption class="label-bar">
+    <span class="id">Pl. {formatNumber(number)}</span>
+    <span>{caption}</span>
+    <span class="palette">{palette}</span>
+  </figcaption>
+</figure>
+
+<style>
+  .plate {
+    margin: 0;
+  }
+
+  /* Whole-pixel scales only, so every plate pixel stays square. */
+  img {
+    display: block;
+    width: calc(4 * var(--plate-width));
+    max-width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+  }
+
+  .hero {
+    margin: 0 calc((var(--measure) - 5 * var(--plate-width)) / 2) 2.25rem;
+  }
+
+  .hero img {
+    width: calc(5 * var(--plate-width));
+  }
+
+  .label-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.45rem 0.5rem;
+    background: var(--ink);
+    color: var(--paper);
+    font: 500 0.6875rem/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .id {
+    padding: 0.2rem 0.3rem;
+    background: var(--pop);
+    color: var(--on-pop);
+  }
+
+  .palette {
+    margin-left: auto;
+    color: var(--muted-on-ink);
+  }
+
+  /* Each step drops a scale where the next one no longer fits the column
+     (2 gutters plus a scrollbar), so max-width never shrinks a plate. */
+  @media (max-width: 60rem) {
+    .hero {
+      margin-inline: 0;
+    }
+
+    .hero img {
+      width: calc(4 * var(--plate-width));
+    }
+  }
+
+  @media (max-width: 44rem) {
+    .plate {
+      max-width: calc(3 * var(--plate-width));
+    }
+
+    img,
+    .hero img {
+      width: calc(3 * var(--plate-width));
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .hero {
+      margin-bottom: 2rem;
+    }
+  }
+
+  @media (max-width: 34rem) {
+    .plate {
+      max-width: calc(2 * var(--plate-width));
+    }
+
+    img,
+    .hero img {
+      width: calc(2 * var(--plate-width));
+    }
+  }
+</style>

@@ -1,0 +1,57 @@
+---
+interface Props {
+  scale: number;
+}
+
+const { scale } = Astro.props;
+
+const GLYPHS = {
+  n: ["#.##.", "##..#", "#...#", "#...#", "#...#", ".....", "....."],
+  e: [".###.", "#...#", "#####", "#....", ".####", ".....", "....."],
+  o: [".###.", "#...#", "#...#", "#...#", ".###.", ".....", "....."],
+  r: ["#.##.", "##..#", "#....", "#....", "#....", ".....", "....."],
+  p: ["####.", "#...#", "#...#", "#...#", "####.", "#....", "#...."],
+};
+
+const WORD = ["n", "e", "o", "r", "p"] as const;
+const GLYPH_WIDTH = 5;
+const HEIGHT = 7;
+const width = WORD.length * (GLYPH_WIDTH + 1) - 1;
+
+const path = WORD.flatMap((letter, i) =>
+  GLYPHS[letter].flatMap((row, y) =>
+    [...row].flatMap((cell, x) =>
+      cell === "#" ? [`M${i * (GLYPH_WIDTH + 1) + x} ${y}h1v1h-1z`] : [],
+    ),
+  ),
+).join("");
+---
+
+<span class="wordmark" style={`--glyph-px: ${scale}px`}>
+  <svg
+    viewBox={`0 0 ${width} ${HEIGHT}`}
+    width={width * scale}
+    height={HEIGHT * scale}
+    shape-rendering="crispEdges"
+    fill="currentColor"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d={path}></path>
+  </svg>
+</span>
+
+<style>
+  /* No bottom padding on purpose: the "p" descender runs to the tile edge,
+     which centres the x-height in the tile. */
+  .wordmark {
+    display: inline-flex;
+    padding: calc(2 * var(--glyph-px)) calc(2 * var(--glyph-px)) 0;
+    background: var(--pop);
+    color: var(--on-pop);
+  }
+
+  svg {
+    display: block;
+  }
+</style>

@@ -1,14 +1,23 @@
 ---
 import "../styles/dither-mask.css";
+import Wordmark from "../components/Wordmark.astro";
+import { SITE } from "../site";
 
 interface Props {
   title?: string;
   description?: string;
 }
 
-const SITE_NAME = "Neorp";
 const { title, description } = Astro.props;
-const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
+const pageTitle = title ? `${title} · ${SITE.name}` : SITE.name;
+
+const NAV = [
+  { href: "/posts/", label: "Posts" },
+  { href: "/about/", label: "About" },
+  { href: SITE.feed, label: "RSS" },
+];
+const current = (href: string) =>
+  Astro.url.pathname === href ? "page" : undefined;
 ---
 
 <!doctype html>
@@ -18,135 +27,374 @@ const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
     <meta name="viewport" content="width=device-width" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" href="/favicon.ico" />
+    <link
+      rel="alternate"
+      type="application/rss+xml"
+      title={SITE.name}
+      href={SITE.feed}
+    />
     <meta name="generator" content={Astro.generator} />
     <meta name="description" content={description} />
     <title>{pageTitle}</title>
   </head>
   <body>
-    <header>
-      <a href="/">Home</a>
-      <a href="/posts/">Posts</a>
-      <a href="/about/">About</a>
+    <header class="masthead">
+      <div class="wrap site">
+        <a class="home" href="/" aria-label="Neorp home">
+          <Wordmark scale={3} />
+        </a>
+        <nav aria-label="Main">
+          {NAV.map(({ href, label }) => (
+            <a href={href} aria-current={current(href)}>
+              {label}
+            </a>
+          ))}
+        </nav>
+      </div>
     </header>
+    <div class="edge" aria-hidden="true"></div>
 
-    <main>
+    <main class="wrap">
       <slot />
     </main>
+
+    <footer class="site-footer">
+      <div class="edge edge-up" aria-hidden="true"></div>
+      <div class="foot">
+        <div class="wrap">
+          <Wordmark scale={2} />
+          <span>Written by hand, built with Astro</span>
+          <a href={SITE.feed}>RSS</a>
+        </div>
+      </div>
+    </footer>
   </body>
 </html>
 
 <style is:global>
   :root {
-    --fg: #1a1a1a;
-    --muted: #666;
-    --accent: #0b5cad;
-    /* The page is one solid colour. The header band starts as a second solid
-       colour and ordered-dithers into the body colour over its last stretch.
-       Retheme by swapping these two tokens. */
-    --bg: #ffffff;
-    --bg-header: #cbd8ea;
-    --header-band: 10rem;
-    --max-width: 46rem;
+    --paper: #f5f0e6;
+    --ink: #1c1a24;
+    --muted: #5f596b;
+    --muted-on-ink: #a7a1b3;
+    --pop: #2b3dff;
+    --on-pop: var(--paper);
+    --sans:
+      "Inter", "Helvetica Neue", "Noto Sans", Arial, system-ui, sans-serif;
+    --mono:
+      "JetBrains Mono", "IBM Plex Mono", ui-monospace, "Noto Sans Mono",
+      "DejaVu Sans Mono", monospace;
+    --measure: 40rem;
+    --gutter: 1.25rem;
+    --px: 4px;
+    --checker-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2' viewBox='0 0 2 2' shape-rendering='crispEdges'><rect width='1' height='1'/><rect x='1' y='1' width='1' height='1'/></svg>");
     /* No dark mode, so pin the canvas the browser paints before CSS applies. */
     color-scheme: light;
   }
 
-  html {
-    position: relative;
-    background-color: var(--bg);
+  @media (max-width: 40rem) {
+    :root {
+      --px: 3px;
+    }
   }
 
-  /* Header band: solid --bg-header down to the header's bottom edge, then
-     ordered-dithered into --bg by the bottom of the band. Absolute rather
-     than fixed, so it scrolls away instead of sitting under the content. The
-     mask holds one pixel per dither dot and is tiled horizontally at a fixed
-     height, which keeps the dots square at any viewport and independent of
-     its width. --dither-mask is the generated data URI (see src/styles/
-     dither-mask.css): a mask-image is not render-blocking, so fetching the
-     mask as a file would let the band paint solid for a frame first. */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-  html::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
-    height: var(--header-band);
-    pointer-events: none;
-    background-color: var(--bg-header);
-    -webkit-mask-image: var(--dither-mask);
-    mask-image: var(--dither-mask);
-    -webkit-mask-size: auto var(--header-band);
-    mask-size: auto var(--header-band);
-    -webkit-mask-repeat: repeat-x;
-    mask-repeat: repeat-x;
-    image-rendering: pixelated;
-    /* Above the page background, below every in-flow box. */
-    z-index: -1;
+  html {
+    background: var(--paper);
   }
 
   body {
-    margin: 0 auto;
-    padding: 1.5rem 1rem 4rem;
-    max-width: var(--max-width);
-    color: var(--fg);
-    font-family:
-      system-ui,
-      -apple-system,
-      "Segoe UI",
-      Roboto,
-      "Helvetica Neue",
-      Arial,
-      sans-serif;
-    line-height: 1.6;
-  }
-
-  header {
     display: flex;
-    gap: 1rem;
-    padding-bottom: 1rem;
-    margin-bottom: 8rem;
+    flex-direction: column;
+    min-height: 100vh;
+    margin: 0;
+    color: var(--ink);
+    font: 1.0625rem/1.7 var(--sans);
   }
 
   a {
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+
+  .masthead :focus-visible,
+  .site-footer :focus-visible {
+    outline-color: var(--paper);
+  }
+
+  .wrap {
+    width: 100%;
+    max-width: calc(var(--measure) + 2 * var(--gutter));
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  .masthead {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .site {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-block: 1.25rem;
+  }
+
+  .home {
+    display: inline-flex;
+  }
+
+  .site nav {
+    display: flex;
+    gap: 1.5rem;
+    font: 500 0.8125rem/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .site nav a,
+  .foot a {
     text-decoration: none;
-    color: var(--accent);
+  }
+
+  .site nav a:hover,
+  .site nav a[aria-current="page"],
+  .foot a:hover {
+    text-decoration: underline 2px;
+    text-underline-offset: 4px;
+  }
+
+  /* Ink through the colourless dither mask: one mask pixel per --px dot. */
+  .edge {
+    height: calc(12 * var(--px));
+    background: var(--ink);
+    -webkit-mask-image: var(--dither-mask);
+    mask-image: var(--dither-mask);
+    -webkit-mask-size: auto calc(12 * var(--px));
+    mask-size: auto calc(12 * var(--px));
+    -webkit-mask-repeat: repeat-x;
+    mask-repeat: repeat-x;
+    image-rendering: pixelated;
+  }
+
+  .edge-up {
+    transform: scaleY(-1);
   }
 
   main {
-    min-height: 60vh;
+    flex: 1;
+    padding-top: 3rem;
+  }
+
+  .site-footer {
+    margin-top: 6rem;
+  }
+
+  .foot {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .foot .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1.5rem;
+    padding-block: 2rem 2.5rem;
+    font: 0.75rem/1.4 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  h1,
+  h2 {
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  /* Code keeps its case: uppercasing an identifier changes what it says. */
+  :is(h1, h2) code {
+    text-transform: none;
+    letter-spacing: normal;
   }
 
   h1 {
-    font-size: 1.9rem;
-    line-height: 1.25;
-    margin: 0 0 0.5rem;
+    font-size: 2.5rem;
+    line-height: 1.05;
+    margin: 0 0 1rem;
   }
 
-  h2 {
-    font-size: 1.4rem;
-    margin-top: 2rem;
+  .kicker {
+    display: inline-block;
+    margin: 0 0 1rem;
+    padding: 0.4rem 0.5rem;
+    background: var(--pop);
+    color: var(--on-pop);
+    font: 500 0.75rem/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
   }
 
-  img {
+  .intro p {
+    margin: 0 0 1rem;
+  }
+
+  .section-label {
+    margin: 3rem 0 0;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid var(--ink);
+    font: 500 0.75rem/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.9rem;
+    color: var(--muted);
+    font: 0.75rem/1.4 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .tag {
+    padding: 0 0.3rem;
+    background: var(--pop);
+    color: var(--on-pop);
+  }
+
+  .arrow-link {
+    display: inline-block;
+    margin-top: 1.5rem;
+    font: 500 0.8125rem/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .checker,
+  .prose blockquote::before {
+    background: var(--ink);
+    -webkit-mask: var(--checker-mask) 0 0 / 4px 4px repeat;
+    mask: var(--checker-mask) 0 0 / 4px 4px repeat;
+  }
+
+  /* The marker is positioned, not a flex item: a flex h2 would split inline
+     code or links in the heading into separate items. */
+  .prose h2 {
+    --marker: 12px;
+    --leading: 1.25em;
+    position: relative;
+    margin: 2.75rem 0 0.75rem;
+    padding-left: calc(var(--marker) + 0.6rem);
+    font-size: 1.25rem;
+    line-height: var(--leading);
+  }
+
+  .prose h2::before {
+    content: "";
+    position: absolute;
+    top: calc((var(--leading) - var(--marker)) / 2);
+    left: 0;
+    width: var(--marker);
+    height: var(--marker);
+    background: var(--pop);
+  }
+
+  .prose :where(p, ul, ol) {
+    margin: 0 0 1.25rem;
+  }
+
+  .prose li {
+    margin-bottom: 0.5rem;
+  }
+
+  .prose a {
+    color: var(--pop);
+    text-decoration: underline 2px;
+    text-underline-offset: 3px;
+  }
+
+  .prose a:hover {
+    background: var(--pop);
+    color: var(--on-pop);
+  }
+
+  .prose code {
+    padding: 0.1em 0.3em;
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
+    font: 0.85em var(--mono);
+  }
+
+  .prose img {
     max-width: 100%;
     height: auto;
   }
 
+  /* Shiki (tokyo-night) sets the colours inline. */
   pre {
-    padding: 1rem;
+    margin: 0 0 1.5rem;
+    padding: 1.25rem 1.5rem;
     overflow-x: auto;
-    border-radius: 6px;
-    font-size: 0.9rem;
+    font: 0.875rem/1.6 var(--mono);
   }
 
-  code {
-    font-family:
-      ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
-      monospace;
+  .prose pre code {
+    padding: 0;
+    background: none;
+    font: inherit;
   }
 
-  :where(p, ul, ol, blockquote) {
-    margin-block: 1rem;
+  .prose blockquote {
+    position: relative;
+    margin: 0 0 1.5rem;
+    padding: 0.25rem 0 0.25rem 1.5rem;
+    font-weight: 500;
+  }
+
+  .prose blockquote::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 8px;
+  }
+
+  .prose blockquote > :last-child {
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 40rem) {
+    body {
+      font-size: 1rem;
+    }
+
+    h1 {
+      font-size: 1.875rem;
+    }
+
+    .site nav {
+      gap: 1rem;
+    }
+
+    pre {
+      padding: 1rem;
+      font-size: 0.8125rem;
+    }
   }
 </style>

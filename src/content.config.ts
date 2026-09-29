@@ -1,6 +1,7 @@
 import { defineCollection } from "astro:content";
 import { glob } from "astro/loaders";
 import { z } from "astro/zod";
+import { PALETTE_NAMES } from "./lib/palettes";
 
 const slugFromPath = ({ entry }: { entry: string }) =>
   entry
@@ -20,6 +21,7 @@ const posts = defineCollection({
     description: z.string().optional(),
     pubDate: z.coerce.date(),
     tags: z.array(z.string()).optional(),
+    plate: z.enum(PALETTE_NAMES).optional(),
   }),
 });
 

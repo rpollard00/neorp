@@ -1,12 +1,121 @@
 ---
+import { getCollection } from "astro:content";
 import Layout from "../layouts/Layout.astro";
+import Plate from "../components/Plate.astro";
+import PostList from "../components/PostList.astro";
+import { plateFor } from "../lib/plates";
+import {
+  formatDate,
+  formatDateAttr,
+  numberPosts,
+  postUrl,
+  readingMinutes,
+} from "../utils/posts";
+
+const [latest, ...earlier] = numberPosts(await getCollection("posts"));
+const cover = latest && plateFor(latest.post);
 ---
 
 <Layout title="Home" description="Insincere attempt at self-promotion">
-  <h1>You are impressed</h1>
-  <p>I've been doing a lot of building. Occasionally, I have thoughts.</p>
-  <p>
-    <a href="/posts/">You can look at my one or two stale blog entries</a> or{" "}
-    <a href="/about/">find out more about me in fluffery Linkedin speech.</a>.
-  </p>
+  <div class="intro home-intro">
+    <p class="kicker">Neorp / writing</p>
+    <h1>You are impressed</h1>
+    <p>I've been doing a lot of building. Occasionally, I have thoughts.</p>
+  </div>
+
+  {latest && cover && (
+    <section class="latest" aria-label="Latest post">
+      <a
+        href={postUrl(latest.post)}
+        aria-labelledby="latest-title"
+        aria-describedby="latest-meta"
+      >
+        <Plate
+          url={cover.url}
+          palette={cover.palette}
+          number={latest.number}
+          caption="Latest"
+          size="cover"
+        />
+        <span class="text">
+          <span class="meta" id="latest-meta">
+            <time datetime={formatDateAttr(latest.post.data.pubDate)}>
+              {formatDate(latest.post.data.pubDate)}
+            </time>
+            <span>{readingMinutes(latest.post)} min</span>
+            <span class="tag">New</span>
+          </span>
+          <span class="title" id="latest-title">
+            {latest.post.data.title}
+          </span>
+          {latest.post.data.description && (
+            <span class="desc">{latest.post.data.description}</span>
+          )}
+        </span>
+      </a>
+    </section>
+  )}
+
+  {earlier.length > 0 && (
+    <section aria-labelledby="earlier">
+      <h2 class="section-label" id="earlier">
+        Earlier
+      </h2>
+      <PostList posts={earlier} />
+    </section>
+  )}
+
+  <a class="arrow-link" href="/posts/">
+    All posts →
+  </a>
 </Layout>
+
+<style>
+  .home-intro h1 {
+    font-size: 3.25rem;
+    line-height: 1;
+  }
+
+  .latest {
+    margin-top: 3rem;
+  }
+
+  .latest a {
+    display: block;
+    text-decoration: none;
+  }
+
+  .text {
+    display: grid;
+    gap: 0.3rem;
+    padding-top: 1rem;
+  }
+
+  .title {
+    font-size: 1.625rem;
+    font-weight: 800;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .latest a:hover .title,
+  .latest a:focus-visible .title {
+    color: var(--pop);
+  }
+
+  .desc {
+    color: var(--muted);
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 40rem) {
+    .home-intro h1 {
+      font-size: 2.375rem;
+    }
+
+    .title {
+      font-size: 1.375rem;
+    }
+  }
+</style>
