@@ -1,0 +1,143 @@
+---
+const ICON = [
+  "..###..",
+  ".#.###.",
+  "#..####",
+  "#..####",
+  "#..####",
+  ".#.###.",
+  "..###..",
+];
+const SIZE = 7;
+const SCALE = 2;
+
+const path = ICON.flatMap((row, y) =>
+  [...row].flatMap((cell, x) => (cell === "#" ? [`M${x} ${y}h1v1h-1z`] : [])),
+).join("");
+---
+
+<button
+  type="button"
+  class="theme-toggle"
+  aria-pressed="false"
+  aria-label="Dark mode"
+  title="Dark mode"
+  hidden
+>
+  <svg
+    viewBox={`0 0 ${SIZE} ${SIZE}`}
+    width={SIZE * SCALE}
+    height={SIZE * SCALE}
+    shape-rendering="crispEdges"
+    fill="currentColor"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d={path}></path>
+  </svg>
+</button>
+
+<style>
+  .theme-toggle {
+    --hit-slop: 5px;
+    position: relative;
+    display: inline-flex;
+    align-self: center;
+    margin: calc(-1 * var(--hit-slop));
+    padding: var(--hit-slop);
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .theme-toggle[hidden] {
+    display: none;
+  }
+
+  @supports not (color: light-dark(#000, #000)) {
+    .theme-toggle {
+      display: none;
+    }
+  }
+
+  .theme-toggle:hover::after {
+    content: "";
+    position: absolute;
+    right: var(--hit-slop);
+    bottom: -1px;
+    left: var(--hit-slop);
+    height: 2px;
+    background: currentColor;
+  }
+
+  svg {
+    display: block;
+  }
+
+  .theme-toggle[aria-pressed="true"] svg {
+    transform: scaleX(-1);
+  }
+</style>
+
+<script>
+  type Theme = "light" | "dark";
+  type Override = Theme | null;
+
+  const isTheme = (value: unknown): value is Theme =>
+    value === "light" || value === "dark";
+  const toOverride = (value: unknown): Override =>
+    isTheme(value) ? value : null;
+
+  const root = document.documentElement;
+  const system = matchMedia("(prefers-color-scheme: dark)");
+  const systemTheme = (): Theme => (system.matches ? "dark" : "light");
+  const effectiveTheme = (): Theme =>
+    toOverride(root.dataset.theme) ?? systemTheme();
+
+  const button = document.querySelector(".theme-toggle");
+
+  if (button instanceof HTMLButtonElement) {
+    const sync = () => {
+      button.setAttribute("aria-pressed", String(effectiveTheme() === "dark"));
+    };
+
+    const apply = (override: Override) => {
+      if (override) {
+        root.dataset.theme = override;
+      } else {
+        delete root.dataset.theme;
+      }
+      sync();
+    };
+
+    const store = (override: Override) => {
+      if (override) {
+        localStorage.setItem("theme", override);
+      } else {
+        localStorage.removeItem("theme");
+      }
+    };
+
+    button.addEventListener("click", () => {
+      const next: Theme = effectiveTheme() === "dark" ? "light" : "dark";
+      const override = next === systemTheme() ? null : next;
+      apply(override);
+      store(override);
+    });
+    system.addEventListener("change", sync);
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) {
+        apply(toOverride(localStorage.getItem("theme")));
+      }
+    });
+    window.addEventListener("storage", (event) => {
+      if (event.key === "theme") {
+        apply(toOverride(event.newValue));
+      }
+    });
+
+    sync();
+    button.hidden = false;
+  }
+</script>

@@ -1,5 +1,6 @@
 ---
 import "../styles/dither-mask.css";
+import ThemeToggle from "../components/ThemeToggle.astro";
 import Wordmark from "../components/Wordmark.astro";
 import { SITE } from "../site";
 
@@ -24,6 +25,14 @@ const current = (href: string) =>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <script is:inline>
+      {
+        const theme = localStorage.getItem("theme");
+        if (theme === "light" || theme === "dark") {
+          document.documentElement.dataset.theme = theme;
+        }
+      }
+    </script>
     <meta name="viewport" content="width=device-width" />
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -50,6 +59,7 @@ const current = (href: string) =>
               {label}
             </a>
           ))}
+          <ThemeToggle />
         </nav>
       </div>
     </header>
@@ -169,6 +179,7 @@ const current = (href: string) =>
 
   .site {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
@@ -427,6 +438,12 @@ const current = (href: string) =>
     pre {
       padding: 1rem;
       font-size: 0.8125rem;
+    }
+  }
+
+  @media (max-width: 22.5rem) {
+    .site nav {
+      gap: 0.625rem;
     }
   }
 </style>
