@@ -10,7 +10,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "dither": "node scripts/generate-dither-mask.mjs"
+    "dither": "node scripts/generate-dither-mask.mjs",
+    "check": "astro check"
   },
   "dependencies": {
     "@astrojs/markdown-satteri": "^0.4.1",
@@ -23,6 +24,9 @@
     "esbuild": true
   },
   "devDependencies": {
-    "prettier-plugin-astro": "^1.0.0"
+    "@astrojs/check": "^0.9.10",
+    "@types/bun": "^1.4.2",
+    "prettier-plugin-astro": "^1.0.0",
+    "typescript": "^6"
   }
 }
