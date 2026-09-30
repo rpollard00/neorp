@@ -1,12 +1,11 @@
 ---
-import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
 import Plate from "../../components/Plate.astro";
 import PostList from "../../components/PostList.astro";
 import { plateFor } from "../../lib/plates";
-import { numberPosts } from "../../utils/posts";
+import { getPublishedPosts, numberPosts } from "../../utils/posts";
 
-const posts = numberPosts(await getCollection("posts"));
+const posts = numberPosts(await getPublishedPosts(new Date()));
 const [latest] = posts;
 const plate = latest && plateFor(latest.post);
 ---

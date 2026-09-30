@@ -1,9 +1,15 @@
 import type { APIRoute, GetStaticPaths } from "astro";
-import { getCollection } from "astro:content";
 import { drawPlate, plateFor } from "../../lib/plates";
+import { getPublishedPosts, getUnpublishedPosts } from "../../utils/posts";
 
 export const getStaticPaths = (async () => {
-  const posts = await getCollection("posts");
+  const now = new Date();
+  const posts = [
+    ...(await getPublishedPosts(now)),
+    ...(import.meta.env.DEV
+      ? (await getUnpublishedPosts(now)).map(({ post }) => post)
+      : []),
+  ];
   return posts.map((post) => {
     const { palette, seed } = plateFor(post);
     return { params: { slug: post.id }, props: { palette, seed } };

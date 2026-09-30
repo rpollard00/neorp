@@ -1,5 +1,4 @@
 import { crc32, deflateSync } from "node:zlib";
-import type { Post } from "../utils/posts";
 import {
   PALETTE_NAMES,
   PALETTES,
@@ -149,7 +148,8 @@ const encodePng = ({
   ]);
 };
 
-export const drawPlate = ({
+/** The plate as raw RGB, three bytes per pixel, row by row. */
+export const renderPlate = ({
   palette,
   seed,
   width = PLATE_WIDTH,
@@ -228,11 +228,21 @@ export const drawPlate = ({
     }
   }
 
-  return encodePng({ width, height, pixels });
+  return { width, height, pixels };
 };
 
-export const plateFor = (post: Post) => {
-  const seed = fnv1a(post.id);
-  const palette = post.data.plate ?? PALETTE_NAMES[seed % PALETTE_NAMES.length];
-  return { palette, seed, url: `/plates/${post.id}.png` };
+export const drawPlate = (plate: Parameters<typeof renderPlate>[0]) =>
+  encodePng(renderPlate(plate));
+
+/** The slug seeds the landscape and, without a `plate:`, picks the palette. */
+export const plateFor = ({
+  id,
+  data,
+}: {
+  id: string;
+  data: { plate?: PaletteName };
+}) => {
+  const seed = fnv1a(id);
+  const palette = data.plate ?? PALETTE_NAMES[seed % PALETTE_NAMES.length];
+  return { palette, seed, url: `/plates/${id}.png` };
 };

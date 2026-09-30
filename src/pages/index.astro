@@ -1,5 +1,4 @@
 ---
-import { getCollection } from "astro:content";
 import Layout from "../layouts/Layout.astro";
 import Plate from "../components/Plate.astro";
 import PostList from "../components/PostList.astro";
@@ -7,12 +6,13 @@ import { plateFor } from "../lib/plates";
 import {
   formatDate,
   formatDateAttr,
+  getPublishedPosts,
   numberPosts,
   postUrl,
   readingMinutes,
 } from "../utils/posts";
 
-const [latest, ...earlier] = numberPosts(await getCollection("posts"));
+const [latest, ...earlier] = numberPosts(await getPublishedPosts(new Date()));
 const cover = latest && plateFor(latest.post);
 ---
 

@@ -1,18 +1,40 @@
-import type { CollectionEntry } from "astro:content";
+import { getCollection, type CollectionEntry } from "astro:content";
+import { postState, type PostState } from "../lib/post";
 
 export type Post = CollectionEntry<"posts">;
 
+export type PublishedPost = Post & { data: { pubDate: Date } };
+
 export type NumberedPost = {
-  post: Post;
+  post: PublishedPost;
   /** 1 is the oldest post. */
   number: number;
 };
+
+type UnpublishedState = Exclude<PostState, { kind: "published" }>;
+
+/** What a post page shows. Only `astro dev` renders drafts and scheduled posts. */
+export type PostStatus =
+  UnpublishedState | { kind: "published"; date: Date; number: number };
+
+const isPublished = (post: Post, now: Date): post is PublishedPost =>
+  postState(post.data, now).kind === "published";
+
+/** Lists, the feed, and the build only ever see these. */
+export const getPublishedPosts = async (now: Date) =>
+  (await getCollection("posts")).filter((post) => isPublished(post, now));
+
+export const getUnpublishedPosts = async (now: Date) =>
+  (await getCollection("posts")).flatMap((post) => {
+    const state = postState(post.data, now);
+    return state.kind === "published" ? [] : [{ post, state }];
+  });
 
 /** Post URLs come from the slug, which is the file path minus the extension. */
 export const postUrl = (post: Post) => `/posts/${post.id}/`;
 
 /**
- * `pubDate` is coerced to UTC midnight, so format in UTC. Formatting in the
+ * `pubDate` is UTC midnight, so format in UTC. Formatting in the
  * build machine's local time shifts the day for anyone off UTC.
  */
 const UTC = { timeZone: "UTC" } as const;
@@ -43,14 +65,14 @@ export const formatNumber = (number: number) => String(number).padStart(2, "0");
  * Newest first. Posts with the same date sort by slug, so post numbers do not
  * change between builds.
  */
-export const sortPosts = (posts: Post[]) =>
+export const sortPosts = (posts: PublishedPost[]) =>
   [...posts].sort(
     (a, b) =>
       b.data.pubDate.getTime() - a.data.pubDate.getTime() ||
       a.id.localeCompare(b.id),
   );
 
-export const numberPosts = (posts: Post[]): NumberedPost[] =>
+export const numberPosts = (posts: PublishedPost[]): NumberedPost[] =>
   sortPosts(posts).map((post, index, all) => ({
     post,
     number: all.length - index,

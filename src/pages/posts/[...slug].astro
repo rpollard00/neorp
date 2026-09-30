@@ -1,23 +1,50 @@
 ---
 import type { GetStaticPaths, InferGetStaticPropsType } from "astro";
-import { getCollection, render } from "astro:content";
+import { render } from "astro:content";
 import PostLayout from "../../layouts/PostLayout.astro";
-import { numberPosts } from "../../utils/posts";
+import {
+  getPublishedPosts,
+  getUnpublishedPosts,
+  numberPosts,
+  type NumberedPost,
+  type Post,
+  type PostStatus,
+} from "../../utils/posts";
+
+type PageProps = {
+  post: Post;
+  status: PostStatus;
+  older: NumberedPost | undefined;
+};
 
 export const getStaticPaths = (async () => {
-  const posts = numberPosts(await getCollection("posts"));
-  return posts.map((entry, i) => ({
-    params: { slug: entry.post.id },
-    props: { entry, older: posts[i + 1] },
+  const now = new Date();
+  const posts = numberPosts(await getPublishedPosts(now));
+  const published = posts.map(({ post, number }, i) => ({
+    params: { slug: post.id },
+    props: {
+      post,
+      status: { kind: "published", date: post.data.pubDate, number },
+      older: posts[i + 1],
+    } satisfies PageProps,
   }));
+  if (!import.meta.env.DEV) return published;
+
+  const unpublished = (await getUnpublishedPosts(now)).map(
+    ({ post, state }) => ({
+      params: { slug: post.id },
+      props: { post, status: state, older: undefined } satisfies PageProps,
+    }),
+  );
+  return [...published, ...unpublished];
 }) satisfies GetStaticPaths;
 
 type Props = InferGetStaticPropsType<typeof getStaticPaths>;
 
-const { entry, older } = Astro.props;
-const { Content } = await render(entry.post);
+const { post, status, older } = Astro.props;
+const { Content } = await render(post);
 ---
 
-<PostLayout entry={entry} older={older}>
+<PostLayout post={post} status={status} older={older}>
   <Content />
 </PostLayout>

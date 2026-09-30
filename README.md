@@ -18,11 +18,21 @@ the name of its file. Frontmatter schema lives in `src/content.config.ts`:
 ---
 title: Post title # required
 description: One line shown in the list and in <meta>
-pubDate: 2026-09-14 # required
+pubDate: 2026-09-14 # optional; see below
 tags: [demo] # optional
 plate: dusk # optional; the palette of the plate
 ---
 ```
+
+`pubDate` sets whether a post is live:
+
+| `pubDate`       | State     | `astro dev`         | Build, lists, RSS, numbering |
+| --------------- | --------- | ------------------- | ---------------------------- |
+| missing         | draft     | renders, with a tag | left out                     |
+| in the future   | scheduled | renders, with a tag | left out until that date     |
+| today or before | published | renders             | included                     |
+
+A scheduled post goes live on the first build on or after its date.
 
 Each post has a plate: a 160×60 pixel landscape that the build draws from a
 palette and a seed. The palette names are in `src/lib/palettes.ts`. If a post

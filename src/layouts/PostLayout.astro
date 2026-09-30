@@ -9,17 +9,26 @@ import {
   postUrl,
   readingMinutes,
   type NumberedPost,
+  type Post,
+  type PostStatus,
 } from "../utils/posts";
 
 interface Props {
-  entry: NumberedPost;
+  post: Post;
+  status: PostStatus;
   older: NumberedPost | undefined;
 }
 
-const { entry, older } = Astro.props;
-const { post, number } = entry;
-const { title, description, pubDate, tags } = post.data;
+const { post, status, older } = Astro.props;
+const { title, description, tags } = post.data;
 const plate = plateFor(post);
+
+const plateCaption =
+  status.kind === "draft"
+    ? "Draft"
+    : status.kind === "scheduled"
+      ? `Scheduled ${formatPlateDate(status.date)}`
+      : formatPlateDate(status.date);
 ---
 
 <Layout title={title} description={description}>
@@ -27,12 +36,17 @@ const plate = plateFor(post);
     <Plate
       url={plate.url}
       palette={plate.palette}
-      number={number}
-      caption={formatPlateDate(pubDate)}
+      number={status.kind === "published" ? status.number : undefined}
+      caption={plateCaption}
       size="hero"
     />
     <p class="meta">
-      <time datetime={formatDateAttr(pubDate)}>{formatDate(pubDate)}</time>
+      {status.kind !== "published" && <span class="tag">{status.kind}</span>}
+      {status.kind !== "draft" && (
+        <time datetime={formatDateAttr(status.date)}>
+          {formatDate(status.date)}
+        </time>
+      )}
       <span>{readingMinutes(post)} min read</span>
       {tags?.map((tag) => (
         <span class="tag">{tag}</span>

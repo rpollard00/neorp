@@ -6,7 +6,8 @@ import { formatNumber } from "../utils/posts";
 interface Props {
   url: string;
   palette: PaletteName;
-  number: number;
+  /** Drafts and scheduled posts have no number yet. */
+  number: number | undefined;
   caption: string;
   size: "hero" | "cover";
 }
@@ -21,7 +22,9 @@ const { url, palette, number, caption, size } = Astro.props;
 >
   <img src={url} width={PLATE_WIDTH} height={PLATE_HEIGHT} alt="" />
   <figcaption class="label-bar">
-    <span class="id">Pl. {formatNumber(number)}</span>
+    <span class="id">
+      Pl. {number === undefined ? "––" : formatNumber(number)}
+    </span>
     <span>{caption}</span>
     <span class="palette">{palette}</span>
   </figcaption>
