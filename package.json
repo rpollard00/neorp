@@ -11,7 +11,9 @@
     "preview": "astro preview",
     "astro": "astro",
     "dither": "node scripts/generate-dither-mask.mjs",
-    "check": "astro check"
+    "check": "astro check",
+    "post": "bun scripts/post/main.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@astrojs/markdown-satteri": "^0.4.1",
@@ -25,8 +27,10 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@clack/prompts": "^1.8.1",
     "@types/bun": "^1.4.2",
     "prettier-plugin-astro": "^1.0.0",
-    "typescript": "^6"
+    "typescript": "^6",
+    "yaml": "^2.9.1"
   }
 }
