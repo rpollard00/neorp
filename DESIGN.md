@@ -46,6 +46,9 @@ Rules:
   section-heading squares. Use `--pop-text` for link text and hover titles.
 - The chrome fields are the same in both themes. Only the page changes. Fills
   on the chrome (the wordmark tile, the plate ID chip) follow the accent.
+- Overscroll past the header or footer shows `--chrome`, so a bounce continues
+  the chrome field. A page that does not scroll keeps a `--page` canvas, so the
+  empty scrollbar gutter stays page-coloured.
 - Put text on `--pop` as a fill with `--on-pop` text: 5.75:1 in light, 4.82:1
   in dark. `--pop-text` on the page is 5.75:1 in light and 5.00:1 in dark.
 - Do not use `--pop` as text or pixels on `--chrome` (2.6:1 in light). Do not

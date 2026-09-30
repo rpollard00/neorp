@@ -138,9 +138,28 @@ const current = (href: string) =>
     box-sizing: border-box;
   }
 
+  /* Overscroll shows the canvas colour, so the canvas is chrome to continue the
+     header and footer. The canvas also fills the reserved scrollbar gutter,
+     which only a page that does not scroll leaves empty: there the canvas is
+     the page. A root scroll timeline is active only while the page scrolls. */
   html {
-    background: var(--page);
+    background: var(--chrome);
     scrollbar-gutter: stable;
+  }
+
+  @supports (animation-timeline: scroll()) {
+    html {
+      background: var(--page);
+      animation: chrome-canvas linear both;
+      animation-timeline: scroll(root);
+    }
+  }
+
+  @keyframes chrome-canvas {
+    from,
+    to {
+      background-color: var(--chrome);
+    }
   }
 
   body {
@@ -148,6 +167,7 @@ const current = (href: string) =>
     flex-direction: column;
     min-height: 100vh;
     margin: 0;
+    background: var(--page);
     color: var(--text);
     font: 1.0625rem/1.7 var(--sans);
   }
