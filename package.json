@@ -2,6 +2,7 @@
   "name": "neorp",
   "type": "module",
   "version": "0.0.1",
+  "packageManager": "bun@1.4.3",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -9,6 +10,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "deploy": "wrangler deploy",
+    "deploy:preview": "wrangler preview",
     "astro": "astro",
     "dither": "node scripts/generate-dither-mask.mjs",
     "check": "astro check",
@@ -31,6 +34,7 @@
     "@types/bun": "^1.4.2",
     "prettier-plugin-astro": "^1.0.0",
     "typescript": "^6",
+    "wrangler": "4.154.0",
     "yaml": "^2.9.1"
   }
 }
