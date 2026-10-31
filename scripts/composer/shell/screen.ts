@@ -1,6 +1,6 @@
 // This file is pure: no DOM, no storage, no network.
 
-import type { Pad, Proved, Refusal, Sha, ShipStatus } from "../protocol";
+import type { Pad, PadId, Proved, Refusal, Sha, ShipStatus } from "../protocol";
 
 export const POLL_MS = 15_000;
 export const MAX_POLLS = 40;
@@ -19,6 +19,9 @@ export type ShipProblem =
   | { kind: "server-error" }
   | { kind: "origin-unreachable" };
 
+/** The pad version that a build is for. An answer for another version is old. */
+export type ProofSource = { pad: PadId; rev: number };
+
 export type Screen =
   | { kind: "pair"; failure: PairFailure | null }
   | {
@@ -26,7 +29,7 @@ export type Screen =
       popover: "closed" | "open";
       problem: WriteProblem | null;
     }
-  | { kind: "building" }
+  | { kind: "building"; source: ProofSource }
   | { kind: "preview"; sha: Sha; url: string }
   | {
       kind: "shipping";
@@ -48,13 +51,19 @@ export type Event =
   | { kind: "denied" }
   | { kind: "pair-failed"; failure: PairFailure }
   | { kind: "pad-opened"; pad: Pad }
+  /** The open text moved to a new pad id. The editor keeps its doc. */
+  | { kind: "pad-forked" }
   | { kind: "edited" }
   | { kind: "tags-toggled" }
   | { kind: "tags-closed" }
   | { kind: "server-back" }
-  | { kind: "prove-started" }
-  | { kind: "prove-answered"; answer: Proved }
-  | { kind: "prove-failed"; problem: "no-server" | "server-error" }
+  | { kind: "prove-started"; source: ProofSource }
+  | { kind: "prove-answered"; source: ProofSource; answer: Proved }
+  | {
+      kind: "prove-failed";
+      source: ProofSource;
+      problem: "no-server" | "server-error";
+    }
   | { kind: "back-to-editing" }
   | { kind: "ship-started" }
   | { kind: "ship-answered"; answer: ShipStatus }
@@ -101,6 +110,11 @@ const shipAnswered = (screen: Screen, answer: ShipStatus): Screen => {
   }
 };
 
+const isBuilding = (screen: Screen, source: ProofSource) =>
+  screen.kind === "building" &&
+  screen.source.pad === source.pad &&
+  screen.source.rev === source.rev;
+
 export const reduce = (screen: Screen, event: Event): Screen => {
   switch (event.kind) {
     case "denied":
@@ -111,7 +125,14 @@ export const reduce = (screen: Screen, event: Event): Screen => {
         : screen;
     case "pad-opened":
       return screenForPad(event.pad);
+    case "pad-forked":
+      return screen.kind === "write" ||
+        screen.kind === "earlier" ||
+        screen.kind === "pair"
+        ? screen
+        : writing;
     case "edited":
+      if (screen.kind === "building") return writing;
       return screen.kind === "write" && screen.problem
         ? { ...screen, problem: null }
         : screen;
@@ -132,9 +153,11 @@ export const reduce = (screen: Screen, event: Event): Screen => {
         ? { ...screen, problem: null }
         : screen;
     case "prove-started":
-      return screen.kind === "write" ? { kind: "building" } : screen;
+      return screen.kind === "write"
+        ? { kind: "building", source: event.source }
+        : screen;
     case "prove-answered":
-      if (screen.kind !== "building") return screen;
+      if (!isBuilding(screen, event.source)) return screen;
       return event.answer.kind === "proved"
         ? { kind: "preview", sha: event.answer.sha, url: event.answer.url }
         : {
@@ -142,7 +165,7 @@ export const reduce = (screen: Screen, event: Event): Screen => {
             problem: { kind: "refused", why: event.answer.why },
           };
     case "prove-failed":
-      return screen.kind === "building"
+      return isBuilding(screen, event.source)
         ? { ...writing, problem: { kind: event.problem } }
         : screen;
     case "back-to-editing":

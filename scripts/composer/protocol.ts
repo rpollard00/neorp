@@ -16,7 +16,7 @@ type Stage =
 /** One piece of text. The app owns it. The server keeps a copy. */
 export type Pad = {
   id: PadId;
-  /** Grows with each change to the pad. The server keeps the highest. */
+  /** Counts the edits on one device, so it cannot show which text is newer. */
   rev: number;
   text: string;
   tags: string[];
@@ -24,6 +24,9 @@ export type Pad = {
   stage: Stage;
   updatedAt: string;
 };
+
+/** `same` is false when the server keeps other text or tags than the request sent. */
+export type PutAnswer = { rev: number; same: boolean };
 
 export type Refusal =
   | { kind: "blank" }
@@ -115,6 +118,22 @@ export const parsePad = (value: unknown): Pad | undefined => {
   }
   return { id, rev, text, tags, target, stage, updatedAt };
 };
+
+export const parsePutAnswer = (value: unknown): PutAnswer | undefined =>
+  isRecord(value) &&
+  typeof value.rev === "number" &&
+  typeof value.same === "boolean"
+    ? { rev: value.rev, same: value.same }
+    : undefined;
+
+/** Two versions with equal text and tags do not disagree, at any rev. */
+export const sameContent = (
+  a: Pick<Pad, "text" | "tags">,
+  b: Pick<Pad, "text" | "tags">,
+) =>
+  a.text === b.text &&
+  a.tags.length === b.tags.length &&
+  a.tags.every((tag, index) => tag === b.tags[index]);
 
 const parseRefusal = (value: unknown): Refusal | undefined => {
   if (!isRecord(value)) return undefined;

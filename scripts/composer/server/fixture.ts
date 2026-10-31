@@ -50,9 +50,11 @@ for (const entry of readdirSync(root, { recursive: true })) {
   }
   if (source.includes("BUILD_SKIPS_PAGE")) continue;
   const page = join("dist/posts", slug, "index.html");
-  const body = source.replace(/^---[\\s\\S]*?\\n---\\n/, "");
+  const [, frontmatter = "", body = ""] = /^---\\n([\\s\\S]*?)\\n---\\n([\\s\\S]*)$/.exec(source) ?? [];
+  const title = /^title: (.*)$/m.exec(frontmatter)?.[1] ?? "";
+  const tags = /^tags: (.*)$/m.exec(frontmatter)?.[1] ?? "";
   mkdirSync(dirname(page), { recursive: true });
-  writeFileSync(page, \`<html><body><div class="prose"><div>\${pad(body)}</div></div></body></html>\`);
+  writeFileSync(page, \`<html><body><article><p class="meta"><span>\${tags}</span></p><h1>\${title}</h1><div class="prose"><div>\${pad(body)}</div></div><nav>Older</nav></article></body></html>\`);
   const link = /LINK_TO:(\\S+)/.exec(source)?.[1];
   if (link) {
     symlinkSync(link, join(dirname(page), "leak.txt"));

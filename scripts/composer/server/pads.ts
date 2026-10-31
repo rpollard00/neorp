@@ -1,10 +1,17 @@
 import { mkdir, open, readdir, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { parsePad, parsePadId, type Pad, type PadId } from "../protocol";
+import {
+  parsePad,
+  parsePadId,
+  sameContent,
+  type Pad,
+  type PadId,
+  type PutAnswer,
+} from "../protocol";
 import { log } from "./log";
 
 export type Pads = {
-  put: (pad: Pad) => Promise<{ rev: number }>;
+  put: (pad: Pad) => Promise<PutAnswer>;
   list: () => Promise<Pad[]>;
 };
 
@@ -65,13 +72,15 @@ export const createPads = ({ dataDir }: { dataDir: string }): Pads => {
     serial(async () => {
       await mkdir(dir, { recursive: true, mode: 0o700 });
       const stored = await readPad(pathOf(pad.id));
-      if (stored && stored.rev >= pad.rev) return { rev: stored.rev };
+      if (stored && stored.rev >= pad.rev) {
+        return { rev: stored.rev, same: sameContent(stored, pad) };
+      }
       await writeDurably({
         dir,
         path: pathOf(pad.id),
         content: JSON.stringify(pad),
       });
-      return { rev: pad.rev };
+      return { rev: pad.rev, same: true };
     });
 
   const list = async () => {

@@ -34,7 +34,10 @@ The design has three requirements, in this order:
 
 1. The owner taps the Home Screen icon. The app opens, also when the server is
    not reachable.
-2. The owner types. Each keystroke goes to `localStorage`.
+2. The owner types. Each keystroke goes to `localStorage`. If `localStorage` is
+   full, the app first removes published and discarded pads that the server has.
+   If that frees too little, the status says "Not saved on this phone", and the
+   text stays in memory until the server has it.
 3. If the server is reachable, the app saves the text to the server.
    The owner can tap **Tags** to add tags.
 4. The owner taps **Preview**. After an estimated 5 to 10 seconds, the app shows
@@ -49,7 +52,7 @@ The app has one service with these routes:
 ```text
 POST /api/pair      { token }  -> cookie      pair this app once
 GET  /api/session              -> nothing     refresh the cookie at launch
-PUT  /api/pads/:id  Pad        -> { rev }     save a pad, safe to retry
+PUT  /api/pads/:id  Pad        -> { rev, same } save a pad, safe to retry
 GET  /api/pads                 -> Pad[]       restore pads after storage loss
 GET  /api/tags                 -> string[]    tags in use on main
 POST /api/prove     { pad }    -> Proved      build the exact commit that can ship
@@ -75,7 +78,8 @@ share. `scripts/composer/text.ts` turns text into a post file.
 
 A pad has a target and a stage. The target is a new post, or a fix of a post. The
 stage is `writing`, `shipping`, `published`, or `discarded`. The server keeps
-the pad with the highest `rev`.
+the pad with the highest `rev`. `same` in the `PUT` answer is false if the server
+keeps other text or tags than the request sent.
 
 `prove` does these steps in this order:
 
@@ -108,6 +112,19 @@ returns `stale`.
 - **`pubDate` is `siteToday` at prove time.** A real build leaves out drafts, so
   each proof has a date. The composer cannot schedule posts.
 - **The composer writes only `.md` files.** MDX runs code in the Cloudflare build.
+- **Two versions that disagree are both kept.** `rev` counts edits on one device,
+  so it cannot show which text is newer. If the server or another tab has other
+  text at the same or a higher `rev`, the app copies the local text to a new pad
+  and puts the other version on the original id. The editor stays on the owner's
+  text, on the new pad, and the other version shows in Earlier. Equal text is no
+  conflict at any `rev`. A local `rev` above the server still replaces the server
+  copy, because a `PUT` has no base version.
+- **A fix of a post has no Discard.** A discarded pad shows in the Discarded
+  section of Earlier, and **Restore** returns it to writing.
+- **A revised post is live when its visible text matches the proof.** The check
+  covers the meta line through the end of `.prose`. A new post is live on a 200.
+- **Text that starts with code or a rule has no title line.** The title is
+  `Note <day>`, and all the text is the body.
 
 ### Markdown
 
@@ -166,7 +183,8 @@ a bare import. Builds run as uid 1001 with a clean environment.
 - The cookie is `HttpOnly`, `Secure`, and `SameSite=Strict`.
 - The deploy script makes the token from 256 random bits, so pairing has no
   limit on tries.
-- The API requires `Sec-Fetch-Site: same-origin`.
+- A request to the app port that is not a GET and has a `Sec-Fetch-Site` header
+  must be `same-origin`.
 - The container uses `read_only`, `cap_drop ALL` plus `SETUID` and `SETGID`,
   `no-new-privileges`, and memory and pid limits.
 
@@ -250,6 +268,8 @@ writes anything. The existing `jj rebase -d main` message then applies.
   with no manual step. This token can change DNS for `reesep.com`.
 - We accept that the certificate log shows the name `compose.reesep.com`.
 - We accept that the app has no server path when Pi-hole is down.
+- We accept that `deps/cache` grows. The composer keeps two installs, but bun
+  does not prune its download cache.
 
 ## Alternatives
 

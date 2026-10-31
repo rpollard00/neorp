@@ -20,6 +20,7 @@ import {
   type Screen,
 } from "./screen";
 import {
+  canDiscard,
   chipTags,
   createStore,
   earlierCount,
@@ -57,6 +58,8 @@ const unpublishedGroup = required("unpublished");
 const unpublishedRows = required("unpublished-rows");
 const publishedGroup = required("published");
 const publishedRows = required("published-rows");
+const discardedGroup = required("discarded");
+const discardedRows = required("discarded-rows");
 const pairForm = elementOf("pair", HTMLFormElement);
 const tokenInput = elementOf("token", HTMLInputElement);
 const pairFailure = required("pair-failure");
@@ -122,6 +125,7 @@ const store = createStore({
       editor.load(pad.text);
       send({ kind: "pad-opened", pad });
     },
+    currentForked: () => send({ kind: "pad-forked" }),
   },
 });
 
@@ -164,12 +168,14 @@ const settle = <T>(args: {
 };
 
 const preview = async () => {
-  if (isBlank(store.current())) return;
-  send({ kind: "prove-started" });
+  const pad = store.current();
+  if (isBlank(pad)) return;
+  const source = { pad: pad.id, rev: pad.rev };
+  send({ kind: "prove-started", source });
   settle({
     outcome: await store.prove(),
-    answered: (answer) => ({ kind: "prove-answered", answer }),
-    failed: (problem) => ({ kind: "prove-failed", problem }),
+    answered: (answer) => ({ kind: "prove-answered", source, answer }),
+    failed: (problem) => ({ kind: "prove-failed", source, problem }),
   });
 };
 
@@ -264,13 +270,15 @@ const rowElement = (row: EarlierRow) => {
           run: () => openRow(pad),
         }),
       );
-      line.append(
-        rowButton({
-          label: "Discard",
-          className: "link",
-          run: () => store.discard(pad.id),
-        }),
-      );
+      if (canDiscard(pad)) {
+        line.append(
+          rowButton({
+            label: "Discard",
+            className: "link",
+            run: () => store.discard(pad.id),
+          }),
+        );
+      }
       break;
     case "sending":
       item.append(textNode("span", "row-title", titleOf(pad)));
@@ -295,6 +303,16 @@ const rowElement = (row: EarlierRow) => {
       );
       break;
     }
+    case "discarded":
+      item.append(textNode("span", "row-title", titleOf(pad)));
+      line.append(
+        rowButton({
+          label: "Restore",
+          className: "link",
+          run: () => store.restore(pad.id),
+        }),
+      );
+      break;
     default: {
       const _exhaustive: never = row;
       return _exhaustive;
@@ -309,16 +327,21 @@ const renderEarlier = (rows: readonly EarlierRow[]) => {
   const key = JSON.stringify(rows);
   if (key === renderedRows) return;
   renderedRows = key;
-  const unpublished = rows.filter((row) => row.kind !== "published");
+  const unpublished = rows.filter(
+    (row) => row.kind === "draft" || row.kind === "sending",
+  );
   const published = rows.filter((row) => row.kind === "published");
-  unpublishedGroup.hidden = unpublished.length === 0 && published.length > 0;
+  const discarded = rows.filter((row) => row.kind === "discarded");
+  unpublishedGroup.hidden = unpublished.length === 0 && rows.length > 0;
   publishedGroup.hidden = published.length === 0;
+  discardedGroup.hidden = discarded.length === 0;
   unpublishedRows.replaceChildren(
     ...(rows.length === 0
       ? [textNode("li", "row-title", "No earlier text.")]
       : unpublished.map(rowElement)),
   );
   publishedRows.replaceChildren(...published.map(rowElement));
+  discardedRows.replaceChildren(...discarded.map(rowElement));
 };
 
 const chipElement = (tag: string, selected: boolean) => {
@@ -441,7 +464,7 @@ const render = () => {
   earlierSection.hidden = surface !== "earlier";
   pairForm.hidden = surface !== "pair";
   for (const bar of bars) bar.hidden = bar.dataset.bar !== barOf(current);
-  editor.setLocked(current.kind !== "write");
+  editor.setLocked(current.kind !== "write" && current.kind !== "building");
   if (wasHidden && surface === "editor") editor.shown();
   if (surface !== "editor") editor.blur();
   renderWriteBar(current, rows);
@@ -457,23 +480,33 @@ const render = () => {
   armPoll();
 };
 
-const poll = async (sha: Sha) =>
+const isPolling = (sha: Sha) => screen.kind === "pushed" && screen.sha === sha;
+
+const poll = async (sha: Sha) => {
+  const outcome = await store.poll(sha);
+  if (!isPolling(sha)) return;
   settle({
-    outcome: await store.poll(sha),
+    outcome,
     answered: (answer) => ({ kind: "ship-answered", answer }),
     failed: (problem) => ({ kind: "ship-failed", problem }),
   });
+};
 
 const armPoll = () => {
+  if (
+    screen.kind !== "pushed" ||
+    !isWatching(screen) ||
+    document.visibilityState !== "visible"
+  ) {
+    clearTimeout(pollTimer);
+    pollTimer = undefined;
+    return;
+  }
   if (pollTimer !== undefined) return;
-  if (screen.kind !== "pushed" || !isWatching(screen)) return;
-  if (document.visibilityState !== "visible") return;
   const { sha } = screen;
   pollTimer = setTimeout(() => {
     pollTimer = undefined;
-    if (screen.kind === "pushed" && document.visibilityState === "visible") {
-      void poll(sha);
-    }
+    if (isPolling(sha)) void poll(sha);
   }, POLL_MS);
 };
 

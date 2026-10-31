@@ -77,11 +77,16 @@ const capTitle = (line: string) => {
   return `${kept.trimEnd()}…`;
 };
 
+/** `title` is null when the first line is code or a rule, so the text has no title line. */
 const splitPad = (text: string) => {
   const lines = splitLines(text);
   const start = lines.findIndex((line) => !isBlank(line));
   if (start === -1) return undefined;
-  const line = (lines[start] ?? "").trim().replace(/^#+\s+/, "");
+  const first = lines[start] ?? "";
+  if (openFence(first) || isRuleLine(first)) {
+    return { title: null, body: normalizeBody(lines.slice(start).join("\n")) };
+  }
+  const line = first.trim().replace(/^#+\s+/, "");
   const title = capTitle(line);
   const rest = lines.slice(start + 1);
   return {
@@ -144,16 +149,17 @@ export const newPostFile = ({
 }): { slug: Slug; path: string; title: string; source: string } | undefined => {
   const pad = splitPad(text);
   if (!pad) return undefined;
-  const slug = freeSlug({ title: pad.title, day, taken }) as Slug;
+  const title = pad.title ?? `Note ${day}`;
+  const slug = freeSlug({ title, day, taken }) as Slug;
   const line = tagsLine(tags);
   return {
     slug,
     path: `${POSTS_DIR}/${slug}.md`,
-    title: pad.title,
+    title,
     source: assemble({
       open: "---\n",
       frontmatter: [
-        titleLine(pad.title),
+        titleLine(title),
         `pubDate: ${day}`,
         ...(line ? [line] : []),
       ],
@@ -220,7 +226,8 @@ export const revisedPostFile = ({
   if (title.end !== title.start + 1 || !isOneLineScalar(title.value)) {
     return undefined;
   }
-  const retitled = lines.with(title.start, titleLine(pad.title));
+  const retitled =
+    pad.title === null ? lines : lines.with(title.start, titleLine(pad.title));
 
   const line = tagsLine(tags);
   const [entry, ...moreTags] = findEntries({ lines: retitled, key: "tags" });
@@ -243,7 +250,7 @@ export const revisedPostFile = ({
       );
 
   return {
-    title: pad.title,
+    title: pad.title ?? readScalar(title.value),
     source: assemble({ open, frontmatter: tagged, body: pad.body }),
   };
 };

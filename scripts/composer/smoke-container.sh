@@ -167,7 +167,7 @@ before=$(git -C "$remote" rev-parse main)
 pad=$(new_pad smoke-pad-one "Smoke post $tag
 
 The body of the smoke post.")
-equal "PUT saves a pad" "$(curl -fsS -X PUT "${session[@]}" "${json[@]}" --data-binary "$pad" "$app_url/api/pads/smoke-pad-one" | jq -c .)" '{"rev":1}'
+equal "PUT saves a pad" "$(curl -fsS -X PUT "${session[@]}" "${json[@]}" --data-binary "$pad" "$app_url/api/pads/smoke-pad-one" | jq -c .)" '{"rev":1,"same":true}'
 equal "GET reads the pad" "$(curl -fsS "${session[@]}" "$app_url/api/pads" | jq -r '.[0].id')" smoke-pad-one
 
 started=$(date +%s%N)

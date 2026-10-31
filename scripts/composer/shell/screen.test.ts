@@ -32,7 +32,9 @@ const PROOF_URL = "https://compose.example:8444/posts/cache-drive/";
 const POST_URL = "https://reesep.com/posts/cache-drive/";
 
 const write: Screen = { kind: "write", popover: "closed", problem: null };
-const building: Screen = { kind: "building" };
+const PAD = "pad-00000001" as PadId;
+const source = { pad: PAD, rev: 3 };
+const building: Screen = { kind: "building", source };
 const preview: Screen = { kind: "preview", sha: SHA, url: PROOF_URL };
 const shipping: Screen = {
   kind: "shipping",
@@ -79,9 +81,10 @@ describe("the publish path", () => {
   test("a pad goes from writing to live", () => {
     const end = run(
       write,
-      { kind: "prove-started" },
+      { kind: "prove-started", source },
       {
         kind: "prove-answered",
+        source,
         answer: { kind: "proved", sha: SHA, url: PROOF_URL },
       },
       { kind: "ship-started" },
@@ -123,6 +126,7 @@ describe("problems", () => {
     expect(
       reduce(building, {
         kind: "prove-answered",
+        source,
         answer: { kind: "refused", why },
       }),
     ).toEqual({
@@ -134,7 +138,7 @@ describe("problems", () => {
 
   test("no server during a build returns to write", () => {
     expect(
-      reduce(building, { kind: "prove-failed", problem: "no-server" }),
+      reduce(building, { kind: "prove-failed", source, problem: "no-server" }),
     ).toEqual({
       kind: "write",
       popover: "closed",
@@ -274,9 +278,77 @@ describe("the live poll", () => {
   });
 });
 
+describe("typing during a build", () => {
+  const answerFor = (rev: number): Event => ({
+    kind: "prove-answered",
+    source: { pad: PAD, rev },
+    answer: { kind: "proved", sha: SHA, url: PROOF_URL },
+  });
+
+  test("the first edit returns to write", () => {
+    expect(reduce(building, { kind: "edited" })).toEqual(write);
+  });
+
+  test("the proof of the older text does not show after the edit", () => {
+    expect(run(building, { kind: "edited" }, answerFor(3))).toEqual(write);
+  });
+
+  test("a new build ignores the answer of the build before it", () => {
+    const again = run(
+      building,
+      { kind: "edited" },
+      { kind: "prove-started", source: { pad: PAD, rev: 4 } },
+    );
+    expect(reduce(again, answerFor(3))).toEqual(again);
+    expect(
+      reduce(again, {
+        kind: "prove-failed",
+        source,
+        problem: "server-error",
+      }),
+    ).toEqual(again);
+    expect(reduce(again, answerFor(4)).kind).toBe("preview");
+  });
+
+  test("Publish cannot reach an ignored proof", () => {
+    const end = run(building, { kind: "edited" }, answerFor(3), {
+      kind: "ship-started",
+    });
+    expect(end).toEqual(write);
+  });
+
+  test("a proof of another pad at the same rev does not show", () => {
+    expect(
+      reduce(building, {
+        ...answerFor(3),
+        source: { pad: "pad-00000002" as PadId, rev: 3 },
+      } as Event),
+    ).toEqual(building);
+  });
+});
+
+describe("a fork of the open pad", () => {
+  test.each([building, preview, shipping])(
+    "$kind returns to write, because the proof was for the old pad",
+    (screen) => {
+      expect(reduce(screen, { kind: "pad-forked" })).toEqual(write);
+    },
+  );
+
+  test.each([write, earlier, pair])("$kind stays", (screen) => {
+    expect(reduce(screen, { kind: "pad-forked" })).toEqual(screen);
+  });
+
+  test("a notice on write stays", () => {
+    const screen: Screen = { ...write, problem: { kind: "no-server" } };
+    expect(reduce(screen, { kind: "pad-forked" })).toEqual(screen);
+  });
+});
+
 describe("a late event", () => {
   const proved: Event = {
     kind: "prove-answered",
+    source,
     answer: { kind: "proved", sha: SHA, url: PROOF_URL },
   };
 

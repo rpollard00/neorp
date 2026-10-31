@@ -282,6 +282,41 @@ describe("prove", () => {
     expect(await fixture.buildCount()).toBe(2);
   });
 
+  const hashDirs = async () =>
+    (await readdir(join(fixture.config.dataDir, "deps")))
+      .filter((name) => /^[0-9a-f]{64}$/.test(name))
+      .sort();
+
+  const pushNewLock = async (lock: string) => {
+    await fixture.pushFromLaptop({ "bun.lock": lock });
+    return new Bun.CryptoHasher("sha256").update(lock).digest("hex");
+  };
+
+  test("a new bun.lock keeps its install and the newest one before it", async () => {
+    const lock = await fixture.remoteGit("show", "main:bun.lock");
+    await proved(pipeline.prove({ pad: makePad({ text: "One" }) }));
+    const [oldest] = await hashDirs();
+    const previous = await pushNewLock(`${lock}\n\n`);
+    await proved(pipeline.prove({ pad: makePad({ text: "Two" }) }));
+    const newest = await pushNewLock(`${lock}\n\n\n`);
+    await proved(pipeline.prove({ pad: makePad({ text: "Three" }) }));
+    expect(await hashDirs()).toEqual([previous, newest].sort());
+    expect(oldest).toBeDefined();
+    const deps = join(fixture.config.dataDir, "deps");
+    expect(await exists(join(deps, "cache"))).toBe(true);
+    expect(await exists(join(deps, "home"))).toBe(true);
+  });
+
+  test("a bun.lock that has an install prunes nothing", async () => {
+    const lock = await fixture.remoteGit("show", "main:bun.lock");
+    await proved(pipeline.prove({ pad: makePad({ text: "One" }) }));
+    await pushNewLock(`${lock}\n\n`);
+    await proved(pipeline.prove({ pad: makePad({ text: "Two" }) }));
+    await proved(pipeline.prove({ pad: makePad({ text: "Three" }) }));
+    expect(await hashDirs()).toHaveLength(2);
+    expect(await fixture.installCount()).toBe(2);
+  });
+
   test("the build sees no secret in its environment", async () => {
     process.env.COMPOSER_TEST_SECRET = "must-not-leak";
     try {
@@ -599,8 +634,9 @@ describe("ship", () => {
       });
     });
 
-    test("a revision is live only when the public prose matches the proof", async () => {
-      let html = '<div class="prose"><div>The first body.</div></div>';
+    test("a revision is live only when the public page matches the proof", async () => {
+      let html =
+        '<p class="meta"></p><h1>Hello World</h1><div class="prose"><div>The first body.</div></div>';
       const live = newPipeline({
         fetchSite: async () => new Response(html, { status: 200 }),
       });
@@ -620,6 +656,67 @@ describe("ship", () => {
       expect((await live.ship({ sha })).kind).toBe("pushed");
       html = await readFile(proofFile("posts/hello-world/index.html"), "utf8");
       html = html.replace("<html>", '<html data-public="yes">');
+      expect((await live.ship({ sha })).kind).toBe("live");
+    });
+
+    const fixOf = async (text: string, tags: string[] = []) =>
+      makePad({
+        text,
+        tags,
+        target: {
+          kind: "revise",
+          slug: "hello-world" as Slug,
+          from: await fixture.remoteMain(),
+        },
+      });
+
+    test.each([
+      [
+        "title",
+        "Hello World\n\nThe first body.",
+        "A new title\n\nThe first body.",
+        [],
+      ],
+      [
+        "tags",
+        "Hello World\n\nThe first body.",
+        "Hello World\n\nThe first body.",
+        ["fresh"],
+      ],
+    ] as const)(
+      "a fix of only the %s is not live while the site serves the old page",
+      async (_name, before, after, tags) => {
+        const start = await proved(
+          pipeline.prove({ pad: await fixOf(before, ["start"]) }),
+        );
+        await pipeline.ship({ sha: start.sha });
+        const old = await readFile(
+          proofFile("posts/hello-world/index.html"),
+          "utf8",
+        );
+        const live = newPipeline({
+          fetchSite: async () => new Response(old, { status: 200 }),
+        });
+        const { sha } = await proved(
+          live.prove({ pad: await fixOf(after, [...tags]) }),
+        );
+        await live.ship({ sha });
+        expect((await live.ship({ sha })).kind).toBe("pushed");
+      },
+    );
+
+    test("the links after the post are not part of the check", async () => {
+      let html = "";
+      const live = newPipeline({
+        fetchSite: async () => new Response(html, { status: 200 }),
+      });
+      const { sha } = await proved(
+        live.prove({ pad: await fixOf("Fixed\n\nFixed body.") }),
+      );
+      await live.ship({ sha });
+      html = (
+        await readFile(proofFile("posts/hello-world/index.html"), "utf8")
+      ).replace("<nav>Older</nav>", "<nav>A newer post</nav>");
       expect((await live.ship({ sha })).kind).toBe("live");
     });
 

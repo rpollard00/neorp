@@ -70,6 +70,7 @@ describe("the real site", () => {
 
         const pad = makePad({
           text: "A real proof\n\nA line of text\n---\nAnother line\n\n```sh\necho “double” ‘single’\n```\n",
+          tags: ["e2e-tag"],
         });
         const started = performance.now();
         const answer = await fetch(
@@ -105,15 +106,18 @@ describe("the real site", () => {
         expect(text).toContain(`"double"`);
         expect(text).toContain(`'single'`);
 
-        const { prose } = JSON.parse(
+        const { fingerprint } = JSON.parse(
           await readFile(
             join(config.dataDir, "proof", "current", "proof.json"),
             "utf8",
           ),
-        ) as { prose: string };
-        expect(prose).toContain("Another line");
-        expect(prose).toContain("tokyo-night");
-        expect(prose).not.toContain("<footer");
+        ) as { fingerprint: string };
+        expect(fingerprint).toContain("A real proof");
+        expect(fingerprint).toContain("e2e-tag");
+        expect(fingerprint).toContain("Another line");
+        expect(fingerprint).toContain("tokyo-night");
+        expect(fingerprint).not.toContain("<footer");
+        expect(fingerprint).not.toContain("post-nav");
       } finally {
         await server.stop();
         await pipeline.close();

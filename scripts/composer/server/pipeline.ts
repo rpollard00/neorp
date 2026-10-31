@@ -47,7 +47,7 @@ export type Proof = {
   intent: string;
   slug: Slug;
   revision: boolean;
-  prose: string;
+  fingerprint: string;
 };
 
 export type Pipeline = {
@@ -78,37 +78,49 @@ const sha256 = (text: string) =>
 const slugOfPath = (path: string) =>
   slugFromPath(path.slice(POSTS_DIR.length + 1));
 
-const PROSE_OPEN =
-  /<div\b[^>]*\bclass\s*=\s*(?:"[^"]*\bprose\b[^"]*"|'[^']*\bprose\b[^']*'|prose\b)[^>]*>/i;
+const openTagOf = (tag: string, name: string) =>
+  new RegExp(
+    `<${tag}\\b[^>]*\\bclass\\s*=\\s*(?:"[^"]*\\b${name}\\b[^"]*"|'[^']*\\b${name}\\b[^']*'|${name}\\b)[^>]*>`,
+    "i",
+  );
 
-const proseOf = (html: string) => {
-  const open = PROSE_OPEN.exec(html);
+const META_OPEN = openTagOf("p", "meta");
+const PROSE_OPEN = openTagOf("div", "prose");
+const HASH_DIR = /^[0-9a-f]{64}$/;
+
+/** The text and tags that a reader sees: the meta line through the end of the prose. */
+const fingerprintOf = (html: string) => {
+  const meta = META_OPEN.exec(html);
+  if (!meta) return "";
+  const page = html.slice(meta.index);
+  const open = PROSE_OPEN.exec(page);
   if (!open) return "";
-  const start = open.index + open[0].length;
   const tags = /<(\/?)div\b[^>]*>/gi;
-  tags.lastIndex = start;
+  tags.lastIndex = open.index + open[0].length;
   let depth = 1;
-  for (let tag = tags.exec(html); tag; tag = tags.exec(html)) {
+  for (let tag = tags.exec(page); tag; tag = tags.exec(page)) {
     depth += tag[1] ? -1 : 1;
-    if (depth === 0) return html.slice(start, tag.index).trim();
+    if (depth === 0) return page.slice(0, tag.index).trim();
   }
   return "";
 };
 
-/** A revised post has a page already, so only its prose can show the new text. */
+/** A revised post has a page already, so only its visible text can show the change. */
 type LiveCheck =
   | { kind: "page-exists" }
-  | { kind: "prose-matches"; prose: string }
-  | { kind: "unknown-prose" };
+  | { kind: "fingerprint-matches"; fingerprint: string }
+  | { kind: "unknown-fingerprint" };
 
-const liveCheckOf = ({ revision, prose }: Proof): LiveCheck => {
+const liveCheckOf = ({ revision, fingerprint }: Proof): LiveCheck => {
   if (!revision) return { kind: "page-exists" };
-  return prose ? { kind: "prose-matches", prose } : { kind: "unknown-prose" };
+  return fingerprint
+    ? { kind: "fingerprint-matches", fingerprint }
+    : { kind: "unknown-fingerprint" };
 };
 
 const parseProof = (value: unknown): Proof | undefined => {
   if (!isRecord(value)) return undefined;
-  const { sha, parent, intent, slug, revision, prose } = value;
+  const { sha, parent, intent, slug, revision, fingerprint } = value;
   const parsedSha = parseSha(sha);
   const parsedParent = parseSha(parent);
   const parsedSlug = parseSlug(slug);
@@ -116,14 +128,14 @@ const parseProof = (value: unknown): Proof | undefined => {
   if (typeof intent !== "string" || typeof revision !== "boolean") {
     return undefined;
   }
-  if (typeof prose !== "string") return undefined;
+  if (typeof fingerprint !== "string") return undefined;
   return {
     sha: parsedSha,
     parent: parsedParent,
     intent,
     slug: parsedSlug,
     revision,
-    prose,
+    fingerprint,
   };
 };
 
@@ -331,6 +343,42 @@ export const createPipeline = (
     }
   };
 
+  /** Keeps the install of `current` and the newest install before it. A failure costs only disk. */
+  const pruneDeps = async (current: string) => {
+    const { code, tail: listing } = await sandbox.run({
+      args: [
+        "find",
+        depsDir,
+        "-mindepth",
+        "1",
+        "-maxdepth",
+        "1",
+        "-type",
+        "d",
+        "-printf",
+        "%T@ %f\\n",
+      ],
+    });
+    if (code !== 0) {
+      log("deps-prune-failed", { step: "list" });
+      return;
+    }
+    const stale = listing
+      .split("\n")
+      .flatMap((line) => {
+        const [time = "", name = ""] = line.split(" ");
+        return HASH_DIR.test(name) && name !== current
+          ? [{ time: Number(time), name }]
+          : [];
+      })
+      .sort((a, b) => b.time - a.time)
+      .slice(1)
+      .map(({ name }) => join(depsDir, name));
+    if (stale.length === 0) return;
+    const removed = await sandbox.run({ args: ["rm", "-rf", ...stale] });
+    if (removed.code !== 0) log("deps-prune-failed", { step: "remove" });
+  };
+
   const linkDeps = async ({
     sha,
     tree,
@@ -342,7 +390,8 @@ export const createPipeline = (
     if (lock === undefined) {
       return { kind: "build-failed", tail: "The commit has no bun.lock." };
     }
-    const cached = join(depsDir, sha256(lock), "node_modules");
+    const hash = sha256(lock);
+    const cached = join(depsDir, hash, "node_modules");
     const inTree = join(tree, "node_modules");
     const { code: missing } = await sandbox.run({
       args: ["test", "-d", cached],
@@ -358,6 +407,7 @@ export const createPipeline = (
       }
       await mustRun(["mkdir", "-p", inTree, dirname(cached)]);
       await mustRun(["mv", "-T", inTree, cached]);
+      await pruneDeps(hash);
     }
     await mustRun(["rm", "-rf", inTree]);
     await mustRun(["ln", "-s", cached, inTree]);
@@ -385,7 +435,7 @@ export const createPipeline = (
     proof,
   }: {
     tree: string;
-    proof: Omit<Proof, "prose">;
+    proof: Omit<Proof, "fingerprint">;
   }): Promise<Proof | Refusal> => {
     await mkdir(proofDir, { recursive: true, mode: 0o700 });
     const stage = join(proofDir, `${proof.sha}.tmp`);
@@ -420,7 +470,7 @@ export const createPipeline = (
 
     const full: Proof = {
       ...proof,
-      prose: proseOf(await readFile(page, "utf8")),
+      fingerprint: fingerprintOf(await readFile(page, "utf8")),
     };
     await writeFile(join(stage, "proof.json"), JSON.stringify(full));
     await repo.pin(proof.sha);
@@ -443,7 +493,7 @@ export const createPipeline = (
   const buildProof = async ({
     proof,
   }: {
-    proof: Omit<Proof, "prose">;
+    proof: Omit<Proof, "fingerprint">;
   }): Promise<Proof | Refusal> => {
     const tree = join(buildsDir, proof.sha);
     try {
@@ -534,14 +584,14 @@ export const createPipeline = (
   };
 
   const isLive = async ({ url, check }: { url: string; check: LiveCheck }) => {
-    if (check.kind === "unknown-prose") return false;
+    if (check.kind === "unknown-fingerprint") return false;
     try {
       const response = await fetchSite(url, {
         signal: AbortSignal.timeout(LIVE_TIMEOUT_MS),
       });
       if (response.status !== 200) return false;
       if (check.kind === "page-exists") return true;
-      return proseOf(await response.text()) === check.prose;
+      return fingerprintOf(await response.text()) === check.fingerprint;
     } catch {
       return false;
     }
@@ -562,7 +612,7 @@ export const createPipeline = (
       check:
         change.status === "A"
           ? { kind: "page-exists" }
-          : { kind: "unknown-prose" },
+          : { kind: "unknown-fingerprint" },
     };
   };
 

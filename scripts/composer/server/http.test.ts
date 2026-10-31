@@ -245,10 +245,11 @@ describe("pads", () => {
 
   test("a PUT replay and an old rev keep the highest rev", async () => {
     const pad = makePad({ rev: 4 });
-    expect(await (await put(pad)).json()).toEqual({ rev: 4 });
-    expect(await (await put(pad)).json()).toEqual({ rev: 4 });
+    expect(await (await put(pad)).json()).toEqual({ rev: 4, same: true });
+    expect(await (await put(pad)).json()).toEqual({ rev: 4, same: true });
     expect(await (await put({ ...pad, rev: 2, text: "Old" })).json()).toEqual({
       rev: 4,
+      same: false,
     });
     const list = (await (
       await app("/api/pads", { headers: paired() })

@@ -250,6 +250,37 @@ describe("newPostFile", () => {
       '---\n\ntext\n\n---\n```\n"a"\n```\n',
     );
   });
+
+  test.each([
+    ["a backtick fence", "```js\nconst a = 1;\n```\n\nafter the fence"],
+    ["a tilde fence", "~~~\ncode\n~~~\n\nafter the fence"],
+    ["blank lines and a fence", "\n\n```\ncode\n```"],
+  ])("%s first keeps the whole text as the body", (_name, text) => {
+    const file = post(text);
+    expect(file.title).toBe(`Note ${DAY}`);
+    expect(file.slug as string).toBe(`note-${DAY}`);
+    expect(frontmatterOf(file.source).title).toBe(`Note ${DAY}`);
+    expect(file.source).toEndWith(`---\n\n${text.trimStart()}\n`);
+  });
+
+  test("a rule first keeps the whole text as the body", () => {
+    const file = post("---\ntitle: not this\n\nThe text.");
+    expect(file.title).toBe(`Note ${DAY}`);
+    expect(file.source).toEndWith(
+      "\n---\n\n---\ntitle: not this\n\nThe text.\n",
+    );
+    expect(frontmatterOf(file.source).title).toBe(`Note ${DAY}`);
+  });
+
+  test("a dated title takes the next free slug", () => {
+    expect(post("```\na\n```", [], [`note-${DAY}`]).slug as string).toBe(
+      `note-${DAY}-2`,
+    );
+  });
+
+  test("a line that only looks like a fence is still the title", () => {
+    expect(post("``` not `a` fence\n\nBody").title).toBe("``` not `a` fence");
+  });
 });
 
 describe("revisedPostFile", () => {
@@ -287,6 +318,17 @@ New body
     expect(
       revisedPostFile({ text: "# New\nb", tags: [], current })?.title,
     ).toBe("New");
+  });
+
+  test("a fence first keeps the title of the post", () => {
+    const file = revisedPostFile({
+      text: "```\ncode\n```",
+      tags: [],
+      current,
+    });
+    expect(file?.title).toBe("Old title");
+    expect(file?.source).toStartWith("---\ntitle: Old title\n");
+    expect(file?.source).toEndWith("---\n\n```\ncode\n```\n");
   });
 
   test("drops the tags line when no tags remain", () => {

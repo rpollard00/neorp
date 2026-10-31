@@ -9,13 +9,15 @@ import {
   type Slug,
 } from "../protocol";
 import {
+  canDiscard,
   chipTags,
   createStore,
   earlierCount,
   earlierRows,
-  mergePads,
+  meetRemote,
   normalizeTag,
   pickCurrent,
+  saveCopy,
   settleShip,
   type Journal,
   type StoreDeps,
@@ -102,8 +104,16 @@ const server = (seed: Pad[] = [], ship?: () => ShipStatus) => {
     if (url.startsWith("/api/pads/")) {
       const pad = JSON.parse(String(init.body)) as Pad;
       const kept = pads.get(pad.id);
-      if (!kept || pad.rev > kept.rev) pads.set(pad.id, pad);
-      return json({ rev: pads.get(pad.id)?.rev });
+      if (kept && kept.rev >= pad.rev) {
+        return json({
+          rev: kept.rev,
+          same:
+            kept.text === pad.text &&
+            JSON.stringify(kept.tags) === JSON.stringify(pad.tags),
+        });
+      }
+      pads.set(pad.id, pad);
+      return json({ rev: pad.rev, same: true });
     }
     return json(null, 404);
   };
@@ -115,6 +125,9 @@ const setup = (args: {
   journal?: ReturnType<typeof makeJournal>;
   log?: string[];
   online?: boolean;
+  firstId?: number;
+  changed?: () => void;
+  shipAnswered?: () => void;
 }) => {
   const log = args.log ?? [];
   const { journal, data } = args.journal ?? makeJournal(log);
@@ -126,8 +139,9 @@ const setup = (args: {
     shipAnswers: [] as ShipStatus[],
     shipFailures: [] as string[],
     replaced: [] as Pad[],
+    forked: [] as Pad[],
   };
-  let ids = 1;
+  let ids = args.firstId ?? 1;
   const deps: StoreDeps = {
     storage: journal,
     fetch: (url, init) => {
@@ -143,16 +157,20 @@ const setup = (args: {
       seen.persist++;
     },
     events: {
-      changed: () => {},
+      changed: () => args.changed?.(),
       denied: () => {
         seen.denied++;
       },
       serverBack: () => {
         seen.back++;
       },
-      shipAnswered: (_id, answer) => seen.shipAnswers.push(answer),
+      shipAnswered: (_id, answer) => {
+        args.shipAnswered?.();
+        seen.shipAnswers.push(answer);
+      },
       shipFailed: (_id, problem) => seen.shipFailures.push(problem),
       currentReplaced: (pad) => seen.replaced.push(pad),
+      currentForked: (pad) => seen.forked.push(pad),
     },
   };
   return { store: createStore(deps), clock, data, log, seen };
@@ -160,6 +178,28 @@ const setup = (args: {
 
 const never: Handler = () => new Promise(() => {});
 const dead: Handler = () => Promise.reject(new TypeError("Load failed"));
+
+const settled = async (clock: ReturnType<typeof makeClock>) => {
+  for (let step = 0; step < 6; step++) await clock.advance(0);
+};
+
+const seedPad = (journal: ReturnType<typeof makeJournal>, pad: Pad) => {
+  journal.data.set(`pad:${pad.id}`, JSON.stringify(pad));
+};
+
+const quotaError = () => new DOMException("full", "QuotaExceededError");
+
+/** The journal refuses each write for which `full` is true. */
+const limit = (
+  { journal }: ReturnType<typeof makeJournal>,
+  full: (key: string) => boolean,
+) => {
+  const write = journal.setItem;
+  journal.setItem = (key, value) => {
+    if (full(key)) throw quotaError();
+    write(key, value);
+  };
+};
 
 const storedPad = (data: Map<string, string>, id: PadId) => {
   const text = data.get(`pad:${id}`);
@@ -232,6 +272,235 @@ describe("the journal", () => {
   });
 });
 
+describe("a full journal", () => {
+  const padsOf = (data: Map<string, string>) =>
+    [...data.keys()].filter((key) => key.startsWith("pad:")).sort();
+
+  test("an edit does not throw, keeps the text, and still saves to the server", async () => {
+    const api = server();
+    const journal = makeJournal();
+    limit(journal, () => true);
+    const { store, clock, data } = setup({ handler: api.handler, journal });
+    store.edit("Typed with a full journal");
+    expect(store.current().text).toBe("Typed with a full journal");
+    expect(data.size).toBe(0);
+    await clock.advance(800);
+    await settled(clock);
+    expect(api.pads.get(store.current().id)?.text).toBe(
+      "Typed with a full journal",
+    );
+  });
+
+  test("the status says Not saved on this phone, and never Saved", async () => {
+    const api = server();
+    const journal = makeJournal();
+    limit(journal, () => true);
+    const { store, clock } = setup({ handler: api.handler, journal });
+    store.edit("Text");
+    expect(store.saveStatus()).toBe("not-saved");
+    expect(saveCopy[store.saveStatus()]).toBe("Not saved on this phone");
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.saveStatus()).toBe("not-saved");
+  });
+
+  test("a later write that fits ends the state", () => {
+    let full = true;
+    const journal = makeJournal();
+    limit(journal, () => full);
+    const { store, data } = setup({ handler: never, journal });
+    store.edit("One");
+    expect(store.saveStatus()).toBe("not-saved");
+    full = false;
+    store.edit("One and two");
+    expect(store.saveStatus()).toBe("on-this-phone");
+    expect(storedPad(data, store.current().id)?.text).toBe("One and two");
+  });
+
+  test("the journal gets the text after the ack when space came back", async () => {
+    let full = true;
+    const api = server();
+    const journal = makeJournal();
+    limit(journal, () => full);
+    const { store, clock, data } = setup({ handler: api.handler, journal });
+    store.edit("Text");
+    full = false;
+    await clock.advance(800);
+    await settled(clock);
+    expect(storedPad(data, store.current().id)?.text).toBe("Text");
+    expect(store.saveStatus()).toBe("saved");
+  });
+
+  test("a second edit with no space still reaches the server", async () => {
+    const api = server();
+    const journal = makeJournal();
+    limit(journal, () => true);
+    const { store, clock } = setup({ handler: api.handler, journal });
+    store.edit("One");
+    await clock.advance(800);
+    await settled(clock);
+    store.edit("One and two");
+    await clock.advance(800);
+    await settled(clock);
+    expect(api.pads.get(store.current().id)?.text).toBe("One and two");
+  });
+
+  const published = {
+    kind: "published",
+    slug: SLUG,
+    sha: SHA,
+    url: URL_LIVE,
+  } as const;
+
+  const seedDone = (journal: ReturnType<typeof makeJournal>) => {
+    seedPad(journal, makePad({ id: padId(2), rev: 3, stage: published }));
+    seedPad(
+      journal,
+      makePad({ id: padId(3), rev: 3, stage: { kind: "discarded" } }),
+    );
+    seedPad(journal, makePad({ id: padId(4), rev: 5, stage: published }));
+    seedPad(
+      journal,
+      makePad({ id: padId(5), rev: 5, stage: { kind: "discarded" } }),
+    );
+    seedPad(journal, makePad({ id: padId(6), rev: 3 }));
+    journal.data.set(
+      "acked",
+      JSON.stringify({
+        [padId(2)]: 3,
+        [padId(3)]: 3,
+        [padId(4)]: 4,
+        [padId(5)]: 4,
+        [padId(6)]: 3,
+      }),
+    );
+  };
+
+  test("a quota failure frees acked published and discarded pads, then retries once", () => {
+    const journal = makeJournal();
+    seedDone(journal);
+    limit(journal, () => journal.data.has(`pad:${padId(2)}`));
+    const { store, data } = setup({ handler: never, journal, firstId: 7 });
+    store.edit("Fits after the cleanup");
+    expect(padsOf(data)).toEqual(
+      [padId(4), padId(5), padId(6), padId(7)].map((id) => `pad:${id}`),
+    );
+    expect(store.saveStatus()).toBe("on-this-phone");
+    expect(store.all().map((pad) => pad.id)).toContain(padId(2));
+  });
+
+  test("unacked text is never removed", () => {
+    const journal = makeJournal();
+    seedPad(journal, makePad({ id: padId(2), rev: 3 }));
+    seedPad(
+      journal,
+      makePad({ id: padId(3), rev: 3, stage: { kind: "discarded" } }),
+    );
+    seedPad(journal, makePad({ id: padId(4), rev: 3, stage: published }));
+    limit(journal, () => true);
+    const { store, data } = setup({ handler: never, journal, firstId: 7 });
+    store.edit("No room");
+    expect(padsOf(data)).toEqual(
+      [padId(2), padId(3), padId(4)].map((id) => `pad:${id}`),
+    );
+    expect(store.saveStatus()).toBe("not-saved");
+  });
+
+  test("a failed write tries the journal only twice", () => {
+    let tries = 0;
+    const journal = makeJournal();
+    const write = journal.journal.setItem;
+    journal.journal.setItem = (key, value) => {
+      if (key.startsWith("pad:")) {
+        tries++;
+        throw quotaError();
+      }
+      write(key, value);
+    };
+    const { store } = setup({ handler: never, journal });
+    store.edit("No room");
+    expect(tries).toBe(2);
+  });
+});
+
+describe("a throw during sync", () => {
+  test("a failed ack write does not stop later saves", async () => {
+    const api = server();
+    const journal = makeJournal();
+    let failing = false;
+    limit(journal, (key) => failing && key === "acked");
+    const { store, clock } = setup({ handler: api.handler, journal });
+    store.start();
+    await settled(clock);
+    store.edit("Hello");
+    await clock.advance(800);
+    await settled(clock);
+    failing = true;
+    store.edit("Hello 2");
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.saveStatus()).toBe("saved");
+    failing = false;
+    store.edit("Hello 3");
+    await clock.advance(800);
+    await settled(clock);
+    expect(api.pads.get(store.current().id)?.text).toBe("Hello 3");
+  });
+
+  test("one throw inside a run does not wedge later runs", async () => {
+    const api = server();
+    let bomb = false;
+    const { store, clock } = setup({
+      handler: api.handler,
+      changed: () => {
+        if (!bomb) return;
+        bomb = false;
+        throw new Error("a render failed");
+      },
+    });
+    store.start();
+    await settled(clock);
+    store.edit("Before");
+    bomb = true;
+    await clock.advance(800);
+    await settled(clock);
+    expect(bomb).toBe(false);
+    store.edit("After the throw");
+    await clock.advance(800);
+    await settled(clock);
+    expect(api.pads.get(store.current().id)?.text).toBe("After the throw");
+  });
+
+  test("a failure in the ship step tries again on the next run", async () => {
+    const answers: ShipStatus[] = [
+      { kind: "origin-unreachable" },
+      { kind: "live", url: URL_LIVE, slug: SLUG },
+    ];
+    const api = server([], () => answers.shift() ?? { kind: "stale" });
+    const journal = makeJournal();
+    seedPad(journal, makePad({ stage: { kind: "shipping", sha: SHA } }));
+    journal.data.set("current", padId(1));
+    journal.data.set("acked", JSON.stringify({ [padId(1)]: 1 }));
+    let bomb = true;
+    const { store, clock, data } = setup({
+      handler: api.handler,
+      journal,
+      shipAnswered: () => {
+        if (!bomb) return;
+        bomb = false;
+        throw new Error("a render failed");
+      },
+    });
+    store.start();
+    await settled(clock);
+    expect(bomb).toBe(false);
+    expect(storedPad(data, padId(1))?.stage.kind).toBe("shipping");
+    await clock.advance(10_000);
+    await settled(clock);
+    expect(storedPad(data, padId(1))?.stage.kind).toBe("published");
+  });
+});
+
 describe("a blank pad", () => {
   test("it is not stored and not sent", async () => {
     const api = server();
@@ -296,7 +565,9 @@ describe("sync", () => {
     const { store } = setup({
       handler: (url, init) => {
         inits.push(init);
-        return url.startsWith("/api/pads/") ? json({ rev: 1 }) : json([]);
+        return url.startsWith("/api/pads/")
+          ? json({ rev: 1, same: true })
+          : json([]);
       },
     });
     store.edit("Going to the background");
@@ -305,17 +576,75 @@ describe("sync", () => {
     expect(inits[0]?.keepalive).toBe(true);
   });
 
-  test("a body too large for keepalive goes without it", () => {
-    const inits: RequestInit[] = [];
-    const { store } = setup({
-      handler: (_url, init) => {
-        inits.push(init);
-        return json({ rev: 1 });
-      },
-    });
-    store.edit("x".repeat(70_000));
+  const flushed = () => {
+    const sent: { id: string; keepalive: boolean | undefined }[] = [];
+    const handler: Handler = (url, init) => {
+      sent.push({ id: url.slice(-1), keepalive: init.keepalive });
+      return new Promise(() => {});
+    };
+    return { sent, handler };
+  };
+
+  test("a body over the byte budget stays for the next sync, by bytes and not characters", async () => {
+    const api = server();
+    const { store, clock } = setup({ handler: api.handler });
+    const text = "漢".repeat(25_000);
+    store.edit(text);
     store.flush();
-    expect(inits[0]?.keepalive).toBe(false);
+    expect(api.calls.filter((call) => call.startsWith("PUT"))).toEqual([]);
+    expect(store.saveStatus()).toBe("on-this-phone");
+    await clock.advance(800);
+    await settled(clock);
+    expect(api.pads.get(store.current().id)?.text).toBe(text);
+  });
+
+  test("a flush of a body over the budget makes no request", () => {
+    const { sent, handler } = flushed();
+    const { store } = setup({ handler });
+    store.edit("漢".repeat(25_000));
+    store.flush();
+    expect(sent).toEqual([]);
+  });
+
+  test("one flush keeps the total of all pads under the budget", () => {
+    const { sent, handler } = flushed();
+    const journal = makeJournal();
+    for (const n of [2, 3, 4]) {
+      seedPad(journal, makePad({ id: padId(n), text: "é".repeat(12_000) }));
+    }
+    const { store } = setup({ handler, journal, firstId: 5 });
+    store.flush();
+    expect(sent).toHaveLength(2);
+    expect(sent.every((call) => call.keepalive === true)).toBe(true);
+  });
+
+  test("the open pad goes first", () => {
+    const { sent, handler } = flushed();
+    const journal = makeJournal();
+    seedPad(journal, makePad({ id: padId(2), text: "é".repeat(20_000) }));
+    const { store } = setup({ handler, journal, firstId: 5 });
+    store.edit("é".repeat(20_000));
+    store.flush();
+    expect(sent.map((call) => call.id)).toEqual(["5"]);
+  });
+
+  test("a small pad after a large pad still fits", () => {
+    const { sent, handler } = flushed();
+    const journal = makeJournal();
+    seedPad(journal, makePad({ id: padId(2), text: "é".repeat(40_000) }));
+    seedPad(journal, makePad({ id: padId(3), text: "small" }));
+    const { store } = setup({ handler, journal, firstId: 5 });
+    store.flush();
+    expect(sent.map((call) => call.id)).toEqual(["3"]);
+  });
+
+  test("a second flush with the first in flight stays under the budget", () => {
+    const { sent, handler } = flushed();
+    const { store } = setup({ handler });
+    store.edit("é".repeat(20_000));
+    store.flush();
+    store.flush();
+    expect(sent).toHaveLength(1);
   });
 
   test("a sync retries while the server is down, then says Saved", async () => {
@@ -402,24 +731,456 @@ describe("sync", () => {
     const second = setup({ handler: never, journal });
     expect(second.store.saveStatus()).toBe("saved");
   });
+});
 
-  test("a higher rev on the server moves the phone above it", async () => {
-    const api = server([makePad({ rev: 9, text: "Old copy" })]);
+describe("two versions that disagree", () => {
+  const ack = (
+    journal: ReturnType<typeof makeJournal>,
+    id: PadId,
+    rev: number,
+  ) => journal.data.set("acked", JSON.stringify({ [id]: rev }));
+
+  /** A phone whose first pull is done, with the open pad at rev 2. */
+  const online = async (args: {
+    api: ReturnType<typeof server>;
+    text?: string;
+  }) => {
     const journal = makeJournal();
-    journal.data.set("pad:pad-00000001", JSON.stringify(makePad({ rev: 2 })));
+    seedPad(journal, makePad({ rev: 1, text: "Base" }));
+    ack(journal, padId(1), 1);
+    journal.data.set("current", padId(1));
+    const phone = setup({
+      handler: args.api.handler,
+      journal,
+      firstId: 2,
+    });
+    phone.store.start();
+    await settled(phone.clock);
+    return { ...phone, journal };
+  };
+
+  test("a PUT answer of same: false keeps both on the phone and the server", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    const { store, clock, data, seen, journal } = await online({ api });
+    api.pads.set(padId(1), makePad({ rev: 2, text: "From the other device" }));
+    store.edit("From this phone");
+    await clock.advance(800);
+    await settled(clock);
+    await clock.advance(800);
+    await settled(clock);
+
+    expect(store.current().text).toBe("From this phone");
+    expect(store.current().id).toBe(padId(2));
+    expect(store.current().target).toEqual({ kind: "new" });
+    expect(store.current().stage).toEqual({ kind: "writing" });
+    expect(journal.data.get("current")).toBe(padId(2));
+    expect(storedPad(data, padId(1))?.text).toBe("From the other device");
+    expect(storedPad(data, padId(2))?.text).toBe("From this phone");
+    expect(api.pads.get(padId(1))?.text).toBe("From the other device");
+    expect(api.pads.get(padId(2))?.text).toBe("From this phone");
+    expect(store.saveStatus()).toBe("saved");
+    expect(seen.replaced).toEqual([]);
+    expect(seen.forked.map((pad) => pad.text)).toEqual(["From this phone"]);
+  });
+
+  test("the other version shows in Earlier", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    const { store, clock } = await online({ api });
+    api.pads.set(padId(1), makePad({ rev: 2, text: "From the other device" }));
+    store.edit("From this phone");
+    await clock.advance(800);
+    await settled(clock);
+    const rows = earlierRows({
+      pads: store.all(),
+      current: store.current().id,
+    });
+    expect(rows.map((row) => row.pad.text)).toEqual(["From the other device"]);
+  });
+
+  test("the copy of a half-done Fix is a new post, and the original keeps the target", async () => {
+    const target = { kind: "revise", slug: SLUG, from: SHA } as const;
+    const api = server([makePad({ rev: 1, text: "Base", target })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 1, text: "Base", target }));
+    ack(journal, padId(1), 1);
     journal.data.set("current", padId(1));
     const { store, clock } = setup({
-      handler: (url, init) =>
-        url === "/api/pads" ? json([]) : api.handler(url, init),
+      handler: api.handler,
       journal,
+      firstId: 2,
     });
-    store.edit("The phone owns this");
     store.start();
-    await clock.advance(0);
+    await settled(clock);
+    api.pads.set(padId(1), makePad({ rev: 2, text: "Other", target }));
+    store.edit("Mine");
     await clock.advance(800);
-    await clock.advance(0);
-    expect(api.pads.get(padId(1))?.text).toBe("The phone owns this");
+    await settled(clock);
+    expect(store.current().target).toEqual({ kind: "new" });
+    expect(storedPad(journal.data, padId(1))?.target).toEqual(target);
+  });
+
+  test("a fork of a pad that is not open leaves the editor alone", async () => {
+    const api = server([makePad({ rev: 3, text: "Other" })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 2, text: "Mine, unsent" }));
+    const { store, clock, seen } = setup({
+      handler: api.handler,
+      journal,
+      firstId: 2,
+    });
+    store.edit("The open pad");
+    store.start();
+    await settled(clock);
+    expect(store.current().text).toBe("The open pad");
+    expect(store.current().id).toBe(padId(2));
+    expect(seen.forked).toEqual([]);
+    const rows = earlierRows({
+      pads: store.all(),
+      current: store.current().id,
+    });
+    expect(rows.map((row) => row.pad.text).sort()).toEqual([
+      "Mine, unsent",
+      "Other",
+    ]);
+  });
+
+  test("a merge with a higher server rev keeps unacked text", async () => {
+    const api = server([makePad({ rev: 5, text: "Newer on the server" })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 2, text: "Written offline" }));
+    ack(journal, padId(1), 1);
+    journal.data.set("current", padId(1));
+    const { store, clock, data, seen } = setup({
+      handler: api.handler,
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.current().text).toBe("Written offline");
+    expect(storedPad(data, padId(1))?.text).toBe("Newer on the server");
+    expect(api.pads.get(padId(2))?.text).toBe("Written offline");
+    expect(seen.replaced).toEqual([]);
+  });
+
+  test("a merge at an equal rev with other text keeps both", async () => {
+    const api = server([makePad({ rev: 2, text: "B text" })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 2, text: "A text" }));
+    ack(journal, padId(1), 1);
+    journal.data.set("current", padId(1));
+    const { store, clock, data } = setup({
+      handler: api.handler,
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.current().text).toBe("A text");
+    expect(storedPad(data, padId(1))?.text).toBe("B text");
+    expect(api.pads.get(padId(2))?.text).toBe("A text");
     expect(store.saveStatus()).toBe("saved");
+  });
+
+  test("a merge with no unacked text takes the higher rev and makes no copy", async () => {
+    const api = server([makePad({ rev: 4, text: "Newer" })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 2 }));
+    ack(journal, padId(1), 2);
+    journal.data.set("current", padId(1));
+    const { store, clock, seen } = setup({
+      handler: api.handler,
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    expect(store.current().text).toBe("Newer");
+    expect(store.all()).toHaveLength(1);
+    expect(seen.replaced.map((pad) => pad.text)).toEqual(["Newer"]);
+  });
+
+  test("a failed read of the other version keeps the text in place and tries again", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    let listFails = false;
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 1, text: "Base" }));
+    ack(journal, padId(1), 1);
+    journal.data.set("current", padId(1));
+    const { store, clock, data } = setup({
+      handler: (url, init) =>
+        url === "/api/pads" && listFails
+          ? json(null, 500)
+          : api.handler(url, init),
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    api.pads.set(padId(1), makePad({ rev: 5, text: "Other" }));
+    listFails = true;
+    store.edit("Mine");
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.current().id).toBe(padId(1));
+    expect(storedPad(data, padId(1))?.text).toBe("Mine");
+    expect(store.saveStatus()).toBe("on-this-phone");
+    listFails = false;
+    await clock.advance(10_000);
+    await settled(clock);
+    expect(store.current().id).toBe(padId(2));
+    expect(storedPad(data, padId(1))?.text).toBe("Other");
+    expect(storedPad(data, padId(2))?.text).toBe("Mine");
+  });
+
+  test("equal text at a higher server rev is no conflict, and later edits still go out", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    const { store, clock, seen } = await online({ api });
+    api.pads.set(padId(1), makePad({ rev: 9, text: "Same words" }));
+    store.edit("Same words");
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.all()).toHaveLength(1);
+    expect(store.saveStatus()).toBe("saved");
+    expect(seen.forked).toEqual([]);
+    store.edit("Same words, and more");
+    expect(store.saveStatus()).toBe("on-this-phone");
+    await clock.advance(800);
+    await settled(clock);
+    expect(api.pads.get(padId(1))?.text).toBe("Same words, and more");
+    expect(store.all()).toHaveLength(1);
+  });
+
+  test("an edit during the PUT of equal text survives the rev move", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    let release = () => {};
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 1, text: "Base" }));
+    ack(journal, padId(1), 1);
+    journal.data.set("current", padId(1));
+    let hold = true;
+    const { store, clock } = setup({
+      handler: async (url, init) => {
+        if (hold && url.startsWith("/api/pads/")) {
+          hold = false;
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return api.handler(url, init);
+      },
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    api.pads.set(padId(1), makePad({ rev: 9, text: "Same words" }));
+    store.edit("Same words");
+    await clock.advance(800);
+    await settled(clock);
+    store.edit("Same words, and more");
+    release();
+    await settled(clock);
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.all()).toHaveLength(1);
+    expect(api.pads.get(padId(1))?.text).toBe("Same words, and more");
+  });
+
+  test("equal text at an equal rev acks in a merge", async () => {
+    const api = server([makePad({ rev: 2, text: "Same" })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 2, text: "Same" }));
+    journal.data.set("current", padId(1));
+    const { store, clock } = setup({
+      handler: api.handler,
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    expect(store.saveStatus()).toBe("saved");
+    expect(store.all()).toHaveLength(1);
+    expect(api.calls.filter((call) => call.startsWith("PUT"))).toEqual([]);
+  });
+
+  test("the rev of the phone does not pass the server to win", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    const { store, clock } = await online({ api });
+    api.pads.set(padId(1), makePad({ rev: 9, text: "Old copy" }));
+    store.edit("The phone owns this");
+    await clock.advance(800);
+    await settled(clock);
+    await clock.advance(20_000);
+    await settled(clock);
+    expect(api.pads.get(padId(1))).toMatchObject({ rev: 9, text: "Old copy" });
+  });
+
+  test("a fork of a fork ends, and each conflict makes one copy", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    const { store, clock } = await online({ api });
+    api.pads.set(padId(1), makePad({ rev: 2, text: "Other" }));
+    store.edit("Mine");
+    await clock.advance(800);
+    await settled(clock);
+    await clock.advance(800);
+    await settled(clock);
+    const copy = store.current().id;
+    expect(copy).toBe(padId(2));
+
+    api.pads.set(copy, { ...api.pads.get(copy)!, rev: 7, text: "Other 2" });
+    store.edit("Mine 2");
+    await clock.advance(800);
+    await settled(clock);
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.current().id).toBe(padId(3));
+    expect(store.current().text).toBe("Mine 2");
+    expect(store.saveStatus()).toBe("saved");
+
+    const count = store.all().length;
+    const puts = api.calls.length;
+    await clock.advance(60_000);
+    await settled(clock);
+    expect(store.all()).toHaveLength(count);
+    expect(count).toBe(3);
+    expect(api.calls.length).toBe(puts);
+  });
+
+  test("identical text is not copied twice", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })]);
+    const { store, clock } = await online({ api });
+    api.pads.set(padId(1), makePad({ rev: 2, text: "Other" }));
+    store.edit("Mine");
+    await clock.advance(800);
+    await settled(clock);
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.current().id).toBe(padId(2));
+
+    expect(store.openPad(padId(1))?.text).toBe("Other");
+    api.pads.set(padId(1), makePad({ rev: 9, text: "Other again" }));
+    store.edit("Mine");
+    await clock.advance(800);
+    await settled(clock);
+    expect(store.current().id).toBe(padId(2));
+    expect(store.current().text).toBe("Mine");
+    expect(store.all().filter((pad) => pad.text === "Mine")).toHaveLength(1);
+    expect(
+      store
+        .all()
+        .map((pad) => pad.text)
+        .sort(),
+    ).toEqual(["Mine", "Other again"]);
+  });
+
+  test("a stale tab keeps the busier tab's text and its own", async () => {
+    const api = server();
+    const journal = makeJournal();
+    const a = setup({ handler: api.handler, journal });
+    a.store.start();
+    await settled(a.clock);
+    a.store.edit("Shared draft");
+    await a.clock.advance(800);
+    await settled(a.clock);
+    const b = setup({ handler: api.handler, journal, firstId: 50 });
+    b.store.start();
+    await settled(b.clock);
+    const id = a.store.current().id;
+    expect(b.store.current().id).toBe(id);
+
+    for (const n of [1, 2, 3, 4]) a.store.edit(`Long paragraph ${n}`);
+    await a.clock.advance(800);
+    await settled(a.clock);
+    b.store.edit("B one word");
+
+    expect(storedPad(journal.data, id)?.text).toBe("Long paragraph 4");
+    expect(b.store.current().id).toBe(padId(50));
+    expect(b.store.current().text).toBe("B one word");
+    expect(storedPad(journal.data, padId(50))?.text).toBe("B one word");
+    expect(b.seen.replaced).toEqual([]);
+    expect(b.seen.forked.map((pad) => pad.text)).toEqual(["B one word"]);
+
+    await b.clock.advance(800);
+    await settled(b.clock);
+    expect(api.pads.get(id)?.text).toBe("Long paragraph 4");
+    expect(api.pads.get(padId(50))?.text).toBe("B one word");
+  });
+
+  test("two tabs at one rev with other text keep both", () => {
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 1, text: "Base" }));
+    journal.data.set("current", padId(1));
+    const a = setup({ handler: never, journal, firstId: 10 });
+    const b = setup({ handler: never, journal, firstId: 20 });
+    a.store.edit("A");
+    b.store.edit("B");
+    expect(storedPad(journal.data, padId(1))?.text).toBe("A");
+    expect(storedPad(journal.data, padId(20))?.text).toBe("B");
+  });
+
+  test("a tab with equal text and an older rev makes no copy and keeps the rev rising", () => {
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 1, text: "Base" }));
+    journal.data.set("current", padId(1));
+    const a = setup({ handler: never, journal, firstId: 10 });
+    const b = setup({ handler: never, journal, firstId: 20 });
+    a.store.edit("x");
+    a.store.edit("Same");
+    b.store.edit("Same");
+    expect(b.store.current().id).toBe(padId(1));
+    expect(b.store.current().rev).toBe(4);
+    expect(storedPad(journal.data, padId(1))?.rev).toBe(4);
+    expect(b.seen.forked).toEqual([]);
+  });
+
+  test("a pull does not lower a rev that another tab wrote", async () => {
+    const api = server([makePad({ rev: 3, text: "Server" })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 1, text: "Base" }));
+    ack(journal, padId(1), 1);
+    const b = setup({ handler: api.handler, journal, firstId: 20 });
+    seedPad(journal, makePad({ rev: 8, text: "Another tab, unsent" }));
+    b.store.start();
+    await settled(b.clock);
+    expect(storedPad(journal.data, padId(1))?.text).toBe("Another tab, unsent");
+  });
+
+  test("the copy reaches the journal before the other version replaces the local text", async () => {
+    const api = server([makePad({ rev: 3, text: "Other" })]);
+    const journal = makeJournal();
+    seedPad(journal, makePad({ rev: 2, text: "Mine" }));
+    journal.data.set("current", padId(1));
+    limit(journal, (key) => key === `pad:${padId(2)}`);
+    const { store, clock } = setup({
+      handler: api.handler,
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    expect(store.current().text).toBe("Mine");
+    expect(storedPad(journal.data, padId(1))?.text).toBe("Mine");
+  });
+
+  test("a pad in shipping that forks does not ship", async () => {
+    const api = server([makePad({ rev: 1, text: "Base" })], () => ({
+      kind: "live",
+      url: URL_LIVE,
+      slug: SLUG,
+    }));
+    const { store, clock } = await online({ api });
+    api.pads.set(padId(1), makePad({ rev: 5, text: "Other" }));
+    store.edit("Mine");
+    store.beginShip(SHA);
+    await settled(clock);
+    expect(store.current().text).toBe("Mine");
+    expect(store.current().stage).toEqual({ kind: "writing" });
+    expect(api.calls).not.toContain("POST /api/ship");
   });
 });
 
@@ -725,6 +1486,46 @@ describe("ship", () => {
     expect(pad?.target).toEqual({ kind: "revise", slug: SLUG, from: SHA });
   });
 
+  test("New thought on the pushed screen leaves the pad published", async () => {
+    const api = server([], () => ({
+      kind: "pushed",
+      url: URL_LIVE,
+      slug: SLUG,
+    }));
+    const journal = makeJournal();
+    seedPad(journal, makePad({ stage: { kind: "shipping", sha: SHA } }));
+    journal.data.set("current", padId(1));
+    const { store, clock, seen } = setup({
+      handler: api.handler,
+      journal,
+      firstId: 2,
+    });
+    store.start();
+    await settled(clock);
+    expect(seen.shipAnswers.map((a) => a.kind)).toEqual(["pushed"]);
+    store.newPad();
+    await clock.advance(60_000);
+    await settled(clock);
+    expect(storedPad(journal.data, padId(1))?.stage).toEqual({
+      kind: "published",
+      slug: SLUG,
+      sha: SHA,
+      url: URL_LIVE,
+    });
+    expect(api.calls.filter((call) => call === "POST /api/ship")).toHaveLength(
+      1,
+    );
+    const next = setup({ handler: api.handler, journal, firstId: 3 });
+    next.store.start();
+    await settled(next.clock);
+    expect(
+      next.store.all().find((pad) => pad.id === padId(1))?.stage.kind,
+    ).toBe("published");
+    expect(api.calls.filter((call) => call === "POST /api/ship")).toHaveLength(
+      1,
+    );
+  });
+
   test("a dead network keeps the stage, and a later try finishes", async () => {
     let up = false;
     const api = server([], () => ({ kind: "live", url: URL_LIVE, slug: SLUG }));
@@ -838,33 +1639,74 @@ describe("launch", () => {
   });
 });
 
-describe("mergePads", () => {
-  test("the highest rev wins", () => {
+describe("meetRemote", () => {
+  const meet = (args: {
+    mine?: Pad;
+    remote: Pad;
+    unacked?: boolean;
+    disputed?: boolean;
+  }) =>
+    meetRemote({
+      mine: args.mine,
+      remote: args.remote,
+      unacked: args.unacked ?? false,
+      disputed: args.disputed ?? false,
+    });
+
+  test("the higher rev of acked text wins", () => {
     const local = makePad({ rev: 3, text: "local" });
     const remote = makePad({ rev: 5, text: "remote" });
-    expect(mergePads([local], [remote])).toEqual([remote]);
-    expect(mergePads([remote], [local])).toEqual([remote]);
+    expect(meet({ mine: local, remote })).toBe("take-remote");
+    expect(meet({ mine: remote, remote: local })).toBe("keep-mine");
   });
 
-  test("an equal rev keeps the phone's copy", () => {
+  test("an equal rev of acked text keeps the phone's copy", () => {
     const local = makePad({ rev: 3, text: "local" });
-    expect(mergePads([local], [makePad({ rev: 3, text: "remote" })])).toEqual([
-      local,
-    ]);
+    const remote = makePad({ rev: 3, text: "remote" });
+    expect(meet({ mine: local, remote })).toBe("keep-mine");
+  });
+
+  test("a higher or equal server rev of other text keeps both", () => {
+    const local = makePad({ rev: 3, text: "local" });
+    for (const rev of [3, 5]) {
+      const remote = makePad({ rev, text: "remote" });
+      expect(meet({ mine: local, remote, unacked: true })).toBe("keep-both");
+    }
+  });
+
+  test("a lower server rev leaves unacked text to its PUT", () => {
+    const local = makePad({ rev: 3, text: "local" });
+    const remote = makePad({ rev: 2, text: "remote" });
+    expect(meet({ mine: local, remote, unacked: true })).toBe("keep-mine");
+  });
+
+  test("a PUT answer of same: false keeps both at any rev", () => {
+    const local = makePad({ rev: 3, text: "local" });
+    const remote = makePad({ rev: 2, text: "remote" });
+    expect(meet({ mine: local, remote, disputed: true })).toBe("keep-both");
+  });
+
+  test("equal text and tags never disagree", () => {
+    const local = makePad({ rev: 3, tags: ["a"] });
+    const remote = makePad({ rev: 9, tags: ["a"] });
+    expect(meet({ mine: local, remote, unacked: true })).toBe("take-remote");
+    expect(meet({ mine: remote, remote: local, disputed: true })).toBe(
+      "keep-mine",
+    );
+  });
+
+  test("other tags with equal text disagree", () => {
+    const local = makePad({ rev: 3, tags: ["a"] });
+    const remote = makePad({ rev: 5, tags: ["b"] });
+    expect(meet({ mine: local, remote, unacked: true })).toBe("keep-both");
   });
 
   test("a missing pad comes in", () => {
-    const remote = makePad({ id: padId(2) });
-    expect(mergePads([], [remote])).toEqual([remote]);
-  });
-
-  test("a pad that only the phone has stays", () => {
-    const local = makePad();
-    expect(mergePads([local], [])).toEqual([local]);
+    expect(meet({ remote: makePad({ id: padId(2) }) })).toBe("take-remote");
   });
 
   test("a blank pad from the server stays out", () => {
-    expect(mergePads([], [makePad({ text: "  " })])).toEqual([]);
+    expect(meet({ remote: makePad({ text: "  " }) })).toBe("keep-mine");
   });
 
   test("a restore after storage loss brings the pads back", async () => {
@@ -882,6 +1724,7 @@ describe("mergePads", () => {
     const local = makePad({ rev: 2 });
     journal.data.set(`pad:${local.id}`, JSON.stringify(local));
     journal.data.set("current", local.id);
+    journal.data.set("acked", JSON.stringify({ [local.id]: 2 }));
     const api = server([makePad({ rev: 4, text: "Newer" })]);
     const { store, clock, seen } = setup({ handler: api.handler, journal });
     store.start();
@@ -911,6 +1754,7 @@ describe("the earlier list", () => {
     const rows = earlierRows({ pads, current: padId(1) });
     expect(earlierCount(rows)).toBe(2);
     expect(rows.map((row) => row.kind).sort()).toEqual([
+      "discarded",
       "draft",
       "published",
       "sending",
@@ -943,6 +1787,45 @@ describe("the earlier list", () => {
       kind: "discarded",
     });
     expect(storedPad(journal.data, old.id)?.text).toBe("A thought");
+  });
+
+  test("a discarded pad has a row, and Restore sets the stage to writing", () => {
+    const journal = makeJournal();
+    const old = makePad({ id: padId(7), stage: { kind: "discarded" } });
+    journal.data.set(`pad:${old.id}`, JSON.stringify(old));
+    const { store } = setup({ handler: never, journal, firstId: 8 });
+    const rows = () =>
+      earlierRows({ pads: store.all(), current: store.current().id });
+    expect(rows().map((row) => row.kind)).toEqual(["discarded"]);
+    expect(earlierCount(rows())).toBe(0);
+    store.restore(old.id);
+    expect(storedPad(journal.data, old.id)?.stage).toEqual({ kind: "writing" });
+    expect(storedPad(journal.data, old.id)?.text).toBe("A thought");
+    expect(rows().map((row) => row.kind)).toEqual(["draft"]);
+    expect(earlierCount(rows())).toBe(1);
+  });
+
+  test("Restore does nothing to a pad that is not discarded", () => {
+    const journal = makeJournal();
+    const old = makePad({ id: padId(7), rev: 4 });
+    journal.data.set(`pad:${old.id}`, JSON.stringify(old));
+    const { store } = setup({ handler: never, journal, firstId: 8 });
+    store.restore(old.id);
+    expect(storedPad(journal.data, old.id)?.rev).toBe(4);
+  });
+
+  test("a half-done Fix cannot be discarded, and its target stays", () => {
+    const journal = makeJournal();
+    const old = makePad({
+      id: padId(7),
+      target: { kind: "revise", slug: SLUG, from: SHA },
+    });
+    journal.data.set(`pad:${old.id}`, JSON.stringify(old));
+    const { store } = setup({ handler: never, journal, firstId: 8 });
+    expect(canDiscard(old)).toBe(false);
+    store.discard(old.id);
+    expect(storedPad(journal.data, old.id)?.stage).toEqual({ kind: "writing" });
+    expect(canDiscard(makePad())).toBe(true);
   });
 
   test("a pad in shipping cannot be discarded", () => {
