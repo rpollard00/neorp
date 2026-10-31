@@ -1,0 +1,15 @@
+**
+!package.json
+!bun.lock
+!src/site.ts
+!src/lib/post-plain.ts
+!scripts/composer/protocol.ts
+!scripts/composer/text.ts
+!scripts/composer/server/
+!scripts/composer/server/**
+!scripts/composer/shell/
+!scripts/composer/shell/**
+scripts/composer/shell/dist
+**/*.test.ts
+scripts/composer/server/fixture.ts
+scripts/composer/server/uid-check.ts

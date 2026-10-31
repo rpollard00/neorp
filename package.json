@@ -12,6 +12,7 @@
     "preview": "astro preview",
     "deploy": "wrangler deploy",
     "deploy:preview": "wrangler preview",
+    "deploy:composer": "scripts/composer/deploy-unraid deploy",
     "astro": "astro",
     "dither": "node scripts/generate-dither-mask.mjs",
     "check": "astro check",
