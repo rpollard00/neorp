@@ -1,6 +1,6 @@
 # Composer design
 
-Status: **proposed**. Nothing in this document is built.
+Status: **built, not deployed**. See "Setup" for the steps that deploy it.
 
 The composer is a private iPhone web app. It lets the owner write a short post,
 see the real built page, and publish the post with a push to `main`.
@@ -47,13 +47,14 @@ The design has three requirements, in this order:
 The app has one service with these routes:
 
 ```text
-POST /_/pair      { token }      -> cookie      pair this app once
-PUT  /_/pads/:id  { text, tags } -> { rev }     save a pad, safe to retry
-GET  /_/pads                     -> Pad[]       restore pads after storage loss
-GET  /_/tags                     -> string[]    tags in use on main
-POST /_/prove     Intent         -> Proved      build the exact commit that can ship
-POST /_/ship      { sha }        -> ShipStatus  push that commit, call again to poll
-GET  /_/*                                       app shell, cached by the service worker
+POST /api/pair      { token }  -> cookie      pair this app once
+GET  /api/session              -> nothing     refresh the cookie at launch
+PUT  /api/pads/:id  Pad        -> { rev }     save a pad, safe to retry
+GET  /api/pads                 -> Pad[]       restore pads after storage loss
+GET  /api/tags                 -> string[]    tags in use on main
+POST /api/prove     { pad }    -> Proved      build the exact commit that can ship
+POST /api/ship      { sha }    -> ShipStatus  push that commit, call again to poll
+GET  /*                                       app shell, cached by the service worker
 ```
 
 A second port serves the files of the current proof. This port is a different
@@ -69,101 +70,25 @@ origin, so code in a built page cannot read pads or call the API.
 
 ## Shape
 
-```ts
-// scripts/composer/text.ts: pure, no bare imports
-export type Slug = string & { readonly __brand: "Slug" };
+`scripts/composer/protocol.ts` holds the types that the app and the server
+share. `scripts/composer/text.ts` turns text into a post file.
 
-/**
- * The first line is the title, capped at 70 characters at a word boundary.
- * A longer first line stays in the body. The slug is capped at 60 characters.
- * An empty slug or "index" becomes note-<day>. A taken slug gets -2, -3.
- * `taken` comes from slugFromPath, so foo/index.md counts as foo.
- */
-export const newPostFile = (args: {
-  text: string;
-  tags: readonly string[];
-  day: string;
-  taken: readonly string[];
-}): { slug: Slug; path: string; title: string; source: string } | undefined => {
-  throw new Error("not implemented");
-};
+A pad has a target and a stage. The target is a new post, or a fix of a post. The
+stage is `writing`, `shipping`, `published`, or `discarded`. The server keeps
+the pad with the highest `rev`.
 
-/** Keeps the slug, pubDate, and other frontmatter. Replaces the title, tags, and body. */
-export const revisedPostFile = (args: {
-  text: string;
-  tags: readonly string[];
-  current: string;
-}): { title: string; source: string } | undefined => {
-  throw new Error("not implemented");
-};
+`prove` does these steps in this order:
 
-/** The Markdown that ships. See "Markdown" for the rules. */
-export const normalizeBody = (body: string): string => {
-  throw new Error("not implemented");
-};
-```
+1. Save the pad. No later step can lose the text.
+2. Fetch `main`. If the slot matches the parent and the intent, return the slot.
+3. Refuse if the bun or node version differs from the image.
+4. Make a commit of the parent plus one file with git plumbing.
+5. As uid 1001, export the commit, link the dependencies, and run the build.
+6. Copy `dist` out as uid 0, delete symlinks, and switch the slot.
 
-```ts
-// scripts/composer/server.ts
-type Sha = string & { readonly __brand: "Sha" };
-type PadId = string & { readonly __brand: "PadId" };
-
-type Intent =
-  | { kind: "new"; pad: PadId; text: string; tags: readonly string[] }
-  | {
-      kind: "revise";
-      pad: PadId;
-      text: string;
-      tags: readonly string[];
-      slug: Slug;
-      from: Sha;
-    };
-
-/** On disk only after a passed build. `ship` can push nothing else. */
-type Proof = { sha: Sha; parent: Sha; intent: Intent; slug: Slug };
-
-type Refusal =
-  | { kind: "blank" }
-  | { kind: "origin-unreachable" }
-  | { kind: "toolchain"; need: string }
-  | { kind: "revise-conflict" }
-  | { kind: "not-revisable" }
-  | { kind: "build-failed"; tail: string }
-  | { kind: "no-page" };
-
-type Proved =
-  | { kind: "proved"; sha: Sha; page: `/posts/${string}/` }
-  | { kind: "refused"; why: Refusal };
-
-type ShipStatus =
-  | { kind: "pushed"; url: string }
-  | { kind: "live"; url: string }
-  | { kind: "stale" } // main moved, and nothing was pushed
-  | { kind: "not-proven" }
-  | { kind: "origin-unreachable" };
-
-/** One promise queue runs prove and ship. */
-const prove = async (intent: Intent): Promise<Proved> => {
-  // TODO Save the pad first. No later step can lose the text.
-  // TODO git fetch origin main. If the slot matches parent and intent, return it.
-  // TODO Refuse if bun or node differs from the image.
-  // TODO Commit with plumbing: parent plus one file, so a commit cannot carry junk.
-  // TODO As uid 1001: git archive | tar -x, link deps/<sha256(bun.lock)>,
-  //      bun install --frozen-lockfile on a cache miss, timeout 120 bun run build.
-  // TODO dist/posts/<slug>/index.html must exist.
-  // TODO uid 1001 tars dist. uid 0 extracts it, deletes symlinks, renames to the slot.
-  throw new Error("not implemented");
-};
-
-/** Never forces. A second call is the poll. */
-const ship = async ({ sha }: { sha: Sha }): Promise<ShipStatus> => {
-  // TODO git fetch. If sha is an ancestor of origin/main, compare the .prose HTML of
-  //      the public page with the proof: equal is live, else pushed.
-  // TODO If sha is not the slot sha, return not-proven.
-  // TODO git push origin <sha>:refs/heads/main. A non-fast-forward returns stale.
-  throw new Error("not implemented");
-};
-```
+`ship` fetches `main`. If the commit is on `main`, it reports `pushed` or `live`.
+It pushes only the commit in the slot, and never forces. A non-fast-forward
+returns `stale`.
 
 ### Decisions
 
@@ -223,7 +148,7 @@ The **Tags** control opens a popover above the bar. The popover shows the tags
 in use and a field for a new tag. The app keeps the tags with the pad, so the
 tags stay on the phone when the server is not reachable.
 
-`GET /_/tags` reads the tags from the frontmatter of the posts on `main`. The
+`GET /api/tags` reads the tags from the frontmatter of the posts on `main`. The
 server imports no YAML parser, so it reads the flow and block forms with a small
 parser. This list is only a suggestion, so a missed tag does no harm. The app
 keeps the last list for use when the server is not reachable.
@@ -236,10 +161,11 @@ a bare import. Builds run as uid 1001 with a clean environment.
 - The key is a deploy key for this repository only. The mount is root-owned, mode
   `0400`.
 - A GitHub ruleset blocks force-push and deletion on `main`.
-- The API requires a session cookie. `POST /_/pair` sets this cookie once, after
+- The API and the proof port require a session cookie. `POST /api/pair` sets this cookie once, after
   the owner enters a long random token. The token mount is root-owned, mode `0400`.
 - The cookie is `HttpOnly`, `Secure`, and `SameSite=Strict`.
-- `POST /_/pair` accepts a small number of tries per hour.
+- The deploy script makes the token from 256 random bits, so pairing has no
+  limit on tries.
 - The API requires `Sec-Fetch-Site: same-origin`.
 - The container uses `read_only`, `cap_drop ALL` plus `SETUID` and `SETGID`,
   `no-new-privileges`, and memory and pid limits.
@@ -285,25 +211,16 @@ specific to copy.
 
 ### Files
 
-Add these files in `scripts/composer/`:
+All composer code is in `scripts/composer/`:
 
-| File                                    | Lines |
-| --------------------------------------- | ----- |
-| `server.ts`                             | 230   |
-| `text.ts`                               | 120   |
-| `shell/index.html`                      | 240   |
-| `shell/editor.ts`                       | 150   |
-| `shell/sw.js`, `manifest.webmanifest`   | 25    |
-| `Dockerfile`, `deploy-unraid`           | 60    |
-| `composer.test.ts`                      | 190   |
+- `protocol.ts`, `text.ts`: the shared contract and the post file rules.
+- `server/`: the pipeline, the pads, the HTTP routes, the sandbox, and the
+  certificate renewal. It imports only `bun`, `node:*`, and relative files.
+- `shell/`: the phone app, with its reducer, journal, editor, and service worker.
+- `Dockerfile`, `deploy-unraid`, `smoke-container.sh`: the image, the deployment,
+  and the container test.
 
-Change these files:
-
-- `src/lib/post-plain.ts`: new file. Move `slugify`, `slugFromPath`, `siteToday`,
-  `formatDay`, and `POSTS_DIR` here, with no bare imports.
-- `src/lib/post.ts`, `scripts/post/post-file.ts`: import from that file.
-- `scripts/post/publish.ts`: add `jj git fetch` to `preflight`.
-- `README.md`: add the composer.
+`src/lib/post-plain.ts` holds the post helpers with no bare imports.
 
 ## Laptop change
 
@@ -368,16 +285,28 @@ text to iCloud Drive and then calls the pad `PUT`.
 If CodeMirror fails on the iPhone, use a plain `textarea`. The formatting then
 shows only in the preview, and the bar controls stay.
 
-## Build order
+## Setup
 
-Each step is usable on its own:
+Do these steps once, in this order:
 
-1. Serve the shell and editor at `compose.reesep.com` with a real certificate.
-   Test force-quit, reboot, home wifi, no server path, and dictation on the iPhone.
-2. Add `PUT /_/pads/:id`, then the tags popover. The owner can then capture text,
-   with no publish.
-3. Add `jj git fetch` to `preflight`.
-4. Build `prove` and `ship` against local bare repositories. Test a stale push,
-   a failed build, and a double ship.
-5. Deploy to Unraid with the key and the ruleset.
-6. Add **Fix** and the "Live" poll.
+1. Run `scripts/composer/deploy-unraid init`.
+2. Add the printed public key to the GitHub repository as a deploy key with
+   write access.
+3. On GitHub, add a ruleset that blocks force-push and deletion on `main`.
+4. Make a Cloudflare API token with DNS edit access to the `reesep.com` zone.
+5. Put the token file at the path in `~/.config/composer-unraid/deploy.json`.
+6. Fill in the author and ACME email values in that config file.
+7. In Pi-hole, add the local DNS record `compose.reesep.com` to `192.168.88.16`.
+8. Run `bun run deploy:composer`.
+9. On the iPhone, open `https://compose.reesep.com` in Safari.
+10. Tap **Share**, then tap **Add to Home Screen**.
+11. Open the Home Screen app, and paste the token from the pair token file.
+
+Then test these items on the iPhone: force-quit, reboot, Tailscale off, dictation,
+autocorrect, and text selection.
+
+## Tests
+
+- `bun test`: all unit and server tests.
+- `COMPOSER_E2E=1 bun test scripts/composer/server/e2e.test.ts`: a real site build.
+- `bash scripts/composer/smoke-container.sh`: the image with the deployment flags.
