@@ -15,12 +15,8 @@ import {
   text,
   type CANCEL_SYMBOL,
 } from "@clack/prompts";
-import {
-  formatDay,
-  postState,
-  siteToday,
-  type PostData,
-} from "../../src/lib/post";
+import { postState, type PostData } from "../../src/lib/post";
+import { formatDay, siteToday } from "../../src/lib/post-plain";
 import { plateFor } from "../../src/lib/plates";
 import { SITE } from "../../src/site";
 import { pickPlate } from "./plate-picker";

@@ -1,6 +1,7 @@
 import { defineCollection } from "astro:content";
 import { glob } from "astro/loaders";
-import { POSTS_DIR, postSchema, slugFromPath } from "./lib/post";
+import { postSchema } from "./lib/post";
+import { POSTS_DIR, slugFromPath } from "./lib/post-plain";
 
 const posts = defineCollection({
   loader: glob({
