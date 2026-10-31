@@ -214,8 +214,9 @@ text stays on the phone. The app saves the text to the server at the next open.
 
 The composer needs HTTPS for the service worker. A Let's Encrypt certificate
 comes from a DNS-01 challenge, which writes one TXT record to the public
-Cloudflare zone. This needs a Cloudflare API token with DNS edit access to the
-zone. The token gets the same protection as the deploy key.
+Cloudflare zone. This needs a Cloudflare API token with Zone.DNS edit and
+Zone.Zone read access to the zone. The token gets the same protection as the
+deploy key.
 
 The composer serves the app on port 443 and the proofs on port 8444.
 
@@ -226,6 +227,13 @@ load`, the same hardening flags, and a probe of a route that reads data. It adds
 read-only file mounts for the deploy key, the pairing token, and the Cloudflare
 token. The hotplate pipeline is too large and too
 specific to copy.
+
+If the new container does not answer in 300 seconds, an update goes back to the
+previous image. A first deploy has no previous image. The container stays running
+and tries the certificate again, and the script prints the log and exits with an
+error. A failed lego try waits 5 minutes, and the wait doubles up to 6 hours. The
+random wait of lego, of up to 8 minutes, applies only to a renewal. A run of the
+pinned lego against a local ACME stub on 2026-10-31 showed this.
 
 ### Files
 
@@ -268,8 +276,13 @@ writes anything. The existing `jj rebase -d main` message then applies.
   with no manual step. This token can change DNS for `reesep.com`.
 - We accept that the certificate log shows the name `compose.reesep.com`.
 - We accept that the app has no server path when Pi-hole is down.
-- We accept that `deps/cache` grows. The composer keeps two installs, but bun
-  does not prune its download cache.
+- We accept that `deps/cache` grows without a limit. The composer keeps two
+  installs, but bun does not prune its download cache.
+- We accept that, with two devices on one pad, a higher local `rev` can still
+  replace different text on the server. A `PUT` has no base version.
+- We accept that a reload after a `localStorage` quota failure can leave a stale
+  copy of a pad in Earlier. The journal keeps the last version that it could
+  write.
 
 ## Alternatives
 
@@ -309,18 +322,31 @@ shows only in the preview, and the bar controls stay.
 
 Do these steps once, in this order:
 
-1. Run `scripts/composer/deploy-unraid init`.
-2. Add the printed public key to the GitHub repository as a deploy key with
+1. Merge the branch `t3/design-local-posting-interface` to `main`. The composer
+   code is on this branch, and `main` has no `scripts/composer`. The laptop fetch
+   fix in `bun post publish` must be on `main` before the first post from the
+   phone.
+2. In a checkout of `main`, run `bun install`. The deploy runs `bun run check`,
+   `bun test`, and `docker build` from this checkout. The workstation also needs
+   `jq` and `curl`, and `ssh root@media.media` must connect with no prompt.
+3. Run `scripts/composer/deploy-unraid init`.
+4. Add the printed public key to the GitHub repository as a deploy key with
    write access.
-3. On GitHub, add a ruleset that blocks force-push and deletion on `main`.
-4. Make a Cloudflare API token with DNS edit access to the `reesep.com` zone.
-5. Put the token file at the path in `~/.config/composer-unraid/deploy.json`.
-6. Fill in the author and ACME email values in that config file.
-7. In Pi-hole, add the local DNS record `compose.reesep.com` to `192.168.88.16`.
-8. Run `bun run deploy:composer`.
-9. On the iPhone, open `https://compose.reesep.com` in Safari.
-10. Tap **Share**, then tap **Add to Home Screen**.
-11. Open the Home Screen app, and paste the token from the pair token file.
+5. On GitHub, add a ruleset that blocks force-push and deletion on `main`.
+6. Make a Cloudflare API token with Zone.DNS edit and Zone.Zone read access to
+   the `reesep.com` zone. lego needs both.
+7. Write the token to the `cloudflareTokenFile` path in
+   `~/.config/composer-unraid/deploy.json`, and set mode `0600` on the file.
+8. Examine that config file. `init` copies the author and ACME email from
+   `git config`. Fill in these values if they are empty.
+9. In Pi-hole, add the local DNS record `compose.reesep.com` to `192.168.88.16`.
+10. Run `bun run deploy:composer`. If this first deploy stops with "The
+    certificate is not issued yet", the container stays running and tries again.
+    Run `scripts/composer/deploy-unraid status`. Do not continue until the log
+    shows `cert-issued`.
+11. On the iPhone, open `https://compose.reesep.com` in Safari.
+12. Tap **Share**, then tap **Add to Home Screen**.
+13. Open the Home Screen app, and paste the token from the pair token file.
 
 Then test these items on the iPhone: force-quit, reboot, Tailscale off, dictation,
 autocorrect, and text selection.

@@ -166,6 +166,24 @@ replace_with() {
   start "$1" && probe
 }
 
+# A first deploy has no image to go back to, and the container retries the certificate by itself. So a
+# running container stays. A failed lego try waits 5 minutes, which is longer than the probe.
+stay_up() {
+  local logs check="$0 status"
+  [[ $(remote "docker inspect --format '{{.State.Running}}' $NAME 2>/dev/null || true") == true ]] || return 0
+  logs=$(remote "docker logs --tail 40 $NAME 2>&1") || true
+  printf '%s\n' "$logs" >&2
+  if [[ $logs == *cert-issue-failed* ]]; then
+    die "The first deploy is not complete. The certificate is not issued yet, so $APP_ORIGIN does not answer.
+The container $NAME stays running and tries again by itself. The wait starts at 5 minutes and doubles, up to 6 hours.
+Each failed try writes cert-issue-failed to the log, with the lego error. The app starts when the log shows cert-issued.
+To check it, run: $check"
+  fi
+  die "The first deploy is not complete. $APP_ORIGIN does not answer, and the log has no failed certificate try.
+The container $NAME stays running.
+To check it, run: $check"
+}
+
 go_back() {
   on_server "docker logs --tail 40 $NAME" >&2 || true
   on_server "docker rm -f $NAME >/dev/null"
@@ -188,6 +206,7 @@ deploy() {
   send_secret "$PAIR_TOKEN" pair-token
   send_secret "$CLOUDFLARE_TOKEN" cloudflare-token
   if ! replace_with "$image" "$previous"; then
+    [[ -n $previous ]] || stay_up
     echo "The new container does not answer at $APP_ORIGIN. Its last log lines:" >&2
     go_back "$previous"
   fi
