@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { formatDay, postSchema, postState, siteToday } from "./post";
+import { postSchema, postState } from "./post";
+import { formatDay, siteToday } from "./post-plain";
 
 const pubDate = new Date("2026-09-30");
 

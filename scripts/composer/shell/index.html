@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#1c1a24" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="neorp" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>neorp composer</title>
+  </head>
+  <body>
+    <div id="root">
+      <div class="status-field" aria-hidden="true"></div>
+      <div class="band" id="band" aria-hidden="true"></div>
+
+      <main id="editor"></main>
+
+      <iframe
+        id="page"
+        title="Preview of the post"
+        sandbox="allow-scripts allow-same-origin"
+        hidden
+      ></iframe>
+
+      <section id="earlier" aria-labelledby="unpublished-label" hidden>
+        <div id="unpublished">
+          <h1 class="section-label" id="unpublished-label">Unpublished</h1>
+          <ul class="rows" id="unpublished-rows"></ul>
+        </div>
+        <div id="published">
+          <h1 class="section-label">Published</h1>
+          <ul class="rows" id="published-rows"></ul>
+        </div>
+        <div id="discarded" hidden>
+          <h1 class="section-label">Discarded</h1>
+          <ul class="rows" id="discarded-rows"></ul>
+        </div>
+      </section>
+
+      <form id="pair" hidden>
+        <label class="section-label" for="token">Token</label>
+        <input
+          id="token"
+          type="text"
+          autocapitalize="none"
+          autocomplete="off"
+          autocorrect="off"
+          spellcheck="false"
+        />
+        <p class="msg" id="pair-failure" role="alert" hidden></p>
+      </form>
+
+      <div class="bar" data-bar="write" hidden>
+        <div class="meta-line" id="meta-line">
+          <span class="tags" id="tag-line"></span>
+          <span class="label save" id="save" role="status"></span>
+        </div>
+        <p class="msg" id="msg" role="status" hidden>
+          <span class="label" id="msg-label"></span>
+          <span id="msg-text"></span>
+        </p>
+        <div class="ctrl-line">
+          <div
+            class="pop"
+            id="tag-pop"
+            role="dialog"
+            aria-label="Tags"
+            data-keep-focus
+            hidden
+          >
+            <div class="chips" id="chips"></div>
+            <form class="add" id="add-tag">
+              <input
+                id="new-tag"
+                type="text"
+                aria-label="New tag"
+                placeholder="New tag"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+              />
+              <button type="submit" class="link">Add</button>
+            </form>
+          </div>
+          <button
+            type="button"
+            class="link"
+            id="earlier-link"
+            data-action="open-earlier"
+          ></button>
+          <span class="tools" id="tools">
+            <button
+              type="button"
+              class="link"
+              id="tags-toggle"
+              aria-expanded="false"
+              aria-controls="tag-pop"
+              data-action="toggle-tags"
+              data-keep-focus
+            >
+              Tags
+            </button>
+            <button
+              type="button"
+              class="tool"
+              aria-label="Insert separator"
+              data-action="insert-separator"
+              data-keep-focus
+            >
+              ---
+            </button>
+            <button
+              type="button"
+              class="tool ticks"
+              aria-label="Insert code block"
+              data-action="insert-code"
+              data-keep-focus
+            >
+              ```
+            </button>
+          </span>
+          <span class="label save" id="save-beside" hidden></span>
+          <button
+            type="button"
+            class="btn"
+            id="preview-button"
+            data-action="preview"
+            data-keep-focus
+          >
+            Preview
+          </button>
+        </div>
+      </div>
+
+      <div class="bar fixed" data-bar="preview" hidden>
+        <div class="bar-line ends">
+          <button type="button" class="link" data-action="back-to-editing">
+            Back to editing
+          </button>
+          <button type="button" class="btn" data-action="publish">
+            Publish
+          </button>
+        </div>
+      </div>
+
+      <div class="bar fixed" data-bar="shipping" hidden>
+        <div class="bar-line">
+          <span class="state">Publishing</span>
+          <p class="two-line">
+            <span id="shipping-line"></span>
+            <span class="quiet" id="shipping-quiet"></span>
+          </p>
+        </div>
+        <div class="bar-line ends" id="shipping-actions" hidden>
+          <button type="button" class="link" data-action="retry-ship">
+            Try again
+          </button>
+          <button type="button" class="btn" data-action="new-thought">
+            New thought
+          </button>
+        </div>
+      </div>
+
+      <div class="bar fixed" data-bar="pushed" hidden>
+        <div class="bar-line">
+          <span class="state">Pushed</span>
+          <p class="two-line">
+            <span>Waiting for the site</span>
+            <span class="quiet">You can close the app.</span>
+          </p>
+          <button type="button" class="btn push" data-action="new-thought">
+            New thought
+          </button>
+        </div>
+      </div>
+
+      <div class="bar fixed" data-bar="settled" hidden>
+        <div class="bar-line">
+          <span class="state done" id="settled-state">Live</span>
+          <span class="where" id="settled-where"></span>
+        </div>
+        <div class="bar-line links">
+          <a class="link" id="open-post" target="_blank" rel="noopener">
+            Open post
+          </a>
+          <button type="button" class="link" data-action="fix">
+            Fix a typo
+          </button>
+          <button type="button" class="btn push" data-action="new-thought">
+            New thought
+          </button>
+        </div>
+      </div>
+
+      <div class="bar fixed" data-bar="earlier" hidden>
+        <div class="bar-line ends">
+          <button type="button" class="link" data-action="close-earlier">
+            Back to editing
+          </button>
+          <button type="button" class="btn" data-action="new-thought">
+            New thought
+          </button>
+        </div>
+      </div>
+
+      <div class="bar fixed" data-bar="pair" hidden>
+        <div class="bar-line ends">
+          <button type="button" class="link" data-action="pair-dismiss">
+            Back to editing
+          </button>
+          <button type="submit" class="btn" form="pair">Pair</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

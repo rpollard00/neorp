@@ -1,5 +1,6 @@
 import { parseArgs, styleText } from "node:util";
-import { formatDay, postState, type PostState } from "../../src/lib/post";
+import { postState, type PostState } from "../../src/lib/post";
+import { formatDay } from "../../src/lib/post-plain";
 import { plateFor } from "../../src/lib/plates";
 import { pickPlate } from "./plate-picker";
 import {

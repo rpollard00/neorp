@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { postSchema } from "../../src/lib/post";
+import { slugify } from "../../src/lib/post-plain";
 import {
   createPost,
   findPost,
@@ -10,7 +11,6 @@ import {
   parsePost,
   serializePost,
   shippedPath,
-  slugify,
   writePost,
   type PostFile,
 } from "./post-file";

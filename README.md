@@ -4,6 +4,9 @@ Personal site. Astro + Markdown/MDX, built static.
 
 See the [deployment guide](docs/deployment.md).
 
+The [composer](docs/composer.md) is a private phone app that writes and publishes
+short posts.
+
 ## Writing
 
 `bun post` starts, lists, and publishes posts:

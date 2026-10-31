@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# Secret files have mode 0600 here. The script sends them through standard input of SSH, never on a command
+# line. On the server they are mode 0400, uid 0, and mounted read-only.
+#
+#   deploy-unraid init              make the config, the pair token, and the deploy key
+#   deploy-unraid deploy            deploy
+#   deploy-unraid deploy --dry-run  print every command, run none, connect to nothing
+#   deploy-unraid status            show the container, the images, and the log
+#   deploy-unraid rollback          start the previous image
+set -euo pipefail
+
+CONFIG=${COMPOSER_DEPLOY_CONFIG:-$HOME/.config/composer-unraid/deploy.json}
+APPDATA=/mnt/user/appdata/composer
+NAME=composer
+LABEL=io.neorp.composer=1
+NETWORK=br0
+PROBE_SECONDS=300
+# The sysctl lets uid 0, which has no CAP_NET_BIND_SERVICE, listen on port 443. --init reaps what a build leaves.
+RUN_FLAGS=(--restart unless-stopped --init --read-only --tmpfs /tmp --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges:true --sysctl net.ipv4.ip_unprivileged_port_start=0 --memory 2g --pids-limit 512)
+
+die() { echo "$*" >&2 && exit 1; }
+
+# The container has no CAP_CHOWN, so the host sets the owners. Uid 0 has no CAP_DAC_OVERRIDE, and it must
+# enter the build tree of uid 1001 to start a build, so builds and deps are mode 0711.
+layout() {
+  echo "mkdir -p $1 && install -d -m 700 -o 0 -g 0 $1/secrets && install -d -m 711 -o 0 -g 0 $1/data" \
+    "&& install -d -m 711 -o 1001 -g 1001 $1/data/builds $1/data/deps" \
+    "&& install -d -m 700 -o 0 -g 0 $1/data/repo.git $1/data/pads $1/data/proof $1/data/lego"
+}
+
+setting() { jq -r --arg fallback "${2-}" ".$1 // \$fallback" "$CONFIG"; }
+
+file_setting() { local path && path=$(setting "$1" "$2") && printf '%s' "${path/#\~/$HOME}"; }
+
+load_config() {
+  [[ -f $CONFIG ]] || die "$CONFIG does not exist. Run: $0 init"
+  local home=${CONFIG%/*}
+  SSH_TARGET=$(setting sshTarget root@media.media)
+  ADDRESS=$(setting ip 192.168.88.16)
+  APP_ORIGIN=$(setting appOrigin https://compose.reesep.com)
+  PROOF_ORIGIN=$(setting proofOrigin https://compose.reesep.com:8444)
+  REMOTE=$(setting remote git@github.com:rpollard00/neorp.git)
+  AUTHOR_NAME=$(setting authorName)
+  AUTHOR_EMAIL=$(setting authorEmail)
+  ACME_EMAIL=$(setting acmeEmail)
+  DEPLOY_KEY=$(file_setting deployKeyFile "$home/deploy-key")
+  CLOUDFLARE_TOKEN=$(file_setting cloudflareTokenFile "$home/cloudflare-token")
+  PAIR_TOKEN=$(file_setting pairTokenFile "$home/pair-token")
+  HOST=${APP_ORIGIN#https://}
+  PROOF_HOST=${PROOF_ORIGIN#https://}
+}
+
+require_settings() {
+  local file
+  [[ -n $AUTHOR_NAME && -n $AUTHOR_EMAIL && -n $ACME_EMAIL ]] || die "$CONFIG must set authorName, authorEmail, and acmeEmail."
+  for file in "$DEPLOY_KEY" "$CLOUDFLARE_TOKEN" "$PAIR_TOKEN"; do
+    [[ -s $file ]] || die "$file does not exist or is empty."
+    (((8#$(stat -c %a "$file") & 8#077) == 0)) || die "$file must have mode 0600."
+  done
+}
+
+init() {
+  umask 077
+  mkdir -p "${CONFIG%/*}"
+  if [[ ! -e $CONFIG ]]; then
+    jq -n --arg name "$(git config user.name)" --arg email "$(git config user.email)" --arg dir "${CONFIG%/*}" '{
+      sshTarget: "root@media.media", ip: "192.168.88.16", appOrigin: "https://compose.reesep.com",
+      proofOrigin: "https://compose.reesep.com:8444", remote: "git@github.com:rpollard00/neorp.git",
+      authorName: $name, authorEmail: $email, acmeEmail: $email, deployKeyFile: "\($dir)/deploy-key",
+      cloudflareTokenFile: "\($dir)/cloudflare-token", pairTokenFile: "\($dir)/pair-token"
+    }' >"$CONFIG"
+  fi
+  load_config
+  [[ -e $PAIR_TOKEN ]] || od -An -tx1 -N32 /dev/urandom | tr -d ' \n' >"$PAIR_TOKEN"
+  [[ -e $DEPLOY_KEY ]] || ssh-keygen -q -t ed25519 -N '' -C composer-deploy -f "$DEPLOY_KEY"
+  cat <<STEPS
+The public deploy key:
+
+$(cat "$DEPLOY_KEY.pub")
+
+Do these steps once:
+
+1. Add the public key to the GitHub repository as a deploy key with write access.
+2. Add a GitHub ruleset that blocks force-push and deletion on main.
+3. Make a Cloudflare API token with Zone.DNS edit and Zone.Zone read access to reesep.com.
+4. Write this token to $CLOUDFLARE_TOKEN, and set mode 0600 on the file.
+5. Add a Pi-hole local DNS record: $HOST points to $ADDRESS.
+6. Examine $CONFIG.
+7. Run: $0 deploy
+
+To pair the app, enter the text of $PAIR_TOKEN in the app. The file stays on this workstation.
+STEPS
+}
+
+remote() {
+  if ((DRY_RUN)); then die "A dry run must not connect to $SSH_TARGET."; fi
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$SSH_TARGET" "$@"
+}
+
+here() { if ((DRY_RUN)); then echo "local:  $*"; else "$@"; fi; }
+on_server() { if ((DRY_RUN)); then echo "remote: $1"; else remote "$1"; fi; }
+
+ask_server() {
+  if ((DRY_RUN)); then echo "remote: $1   (a dry run assumes the answer: $2)" >&2 && printf '%s\n' "$2"; else remote "$1"; fi
+}
+
+send_secret() {
+  local to=$APPDATA/secrets/$2 script
+  script="umask 277 && rm -f $to.tmp && cat >$to.tmp && chown 0:0 $to.tmp && mv -f $to.tmp $to"
+  if ((DRY_RUN)); then echo "remote: $script   (standard input: $1)"; else remote "$script" <"$1"; fi
+}
+
+start() {
+  local env="" pair
+  for pair in COMPOSER_REMOTE="$REMOTE" COMPOSER_APP_ORIGIN="$APP_ORIGIN" COMPOSER_PROOF_ORIGIN="$PROOF_ORIGIN" \
+    COMPOSER_AUTHOR_NAME="$AUTHOR_NAME" COMPOSER_AUTHOR_EMAIL="$AUTHOR_EMAIL" COMPOSER_ACME_EMAIL="$ACME_EMAIL" \
+    COMPOSER_TOKEN_FILE=/run/secrets/pair-token COMPOSER_SSH_KEY_FILE=/run/secrets/deploy-key \
+    COMPOSER_CLOUDFLARE_TOKEN_FILE=/run/secrets/cloudflare-token; do
+    env+=" -e $(printf %q "$pair")"
+  done
+  on_server "docker run -d --name $NAME --label $LABEL --network $NETWORK --ip $ADDRESS ${RUN_FLAGS[*]} --mount type=bind,source=$APPDATA/data,target=/data --mount type=bind,source=$APPDATA/secrets,target=/run/secrets,readonly$env $1 >/dev/null"
+}
+
+# curl must accept the real certificate for the real name.
+answers() {
+  local to=(--max-time 5 --resolve "$HOST:443:$ADDRESS" --resolve "$PROOF_HOST:$ADDRESS") cookie
+  [[ $(curl -fsS "${to[@]}" "$APP_ORIGIN/" -o /dev/null -w '%{content_type}' 2>/dev/null) == text/html* ]] || return 1
+  cookie=$(jq -Rc '{token: .}' <"$PAIR_TOKEN" | curl -fsS "${to[@]}" -H 'content-type: application/json' --data-binary @- -o /dev/null -D - "$APP_ORIGIN/api/pair" 2>/dev/null |
+    sed -n 's/^[Ss]et-[Cc]ookie: \([^;]*\).*/\1/p') || return 1
+  [[ -n $cookie ]] || return 1
+  printf 'Cookie: %s\n' "$cookie" | curl -fsS "${to[@]}" -H @- "$APP_ORIGIN/api/pads" 2>/dev/null | jq -e 'type == "array"' >/dev/null || return 1
+  [[ $(curl -sS "${to[@]}" "$PROOF_ORIGIN/" -o /dev/null -w '%{http_code}' 2>/dev/null) == 401 ]]
+}
+
+probe() {
+  local try
+  if ((DRY_RUN)); then echo "local:  probe $APP_ORIGIN/, /api/pair, /api/pads, and $PROOF_ORIGIN/ at $ADDRESS" && return 0; fi
+  for ((try = 0; try < PROBE_SECONDS; try += 5)); do answers && return 0 || sleep 5; done
+  return 1
+}
+
+current_image() {
+  local existing
+  existing=$(ask_server "docker ps -a --filter name=^$NAME\$ --format '{{.Label \"${LABEL%=*}\"}}|{{.Image}}'" "1|$NAME:20260101000000")
+  [[ -z $existing || $existing == 1\|* ]] || die "A container named $NAME exists on $SSH_TARGET, and this script did not make it. Remove it first."
+  printf '%s' "${existing#1|}"
+}
+
+state=untouched
+put_back() {
+  local code=$?
+  trap - EXIT
+  if [[ $state == stopped ]]; then
+    remote "docker start $NAME >/dev/null" || echo "THE CONTAINER $NAME IS STOPPED on $SSH_TARGET. Run: ssh $SSH_TARGET docker start $NAME" >&2
+  fi
+  exit "$code"
+}
+
+replace_with() {
+  if [[ -n $2 ]]; then
+    if ((!DRY_RUN)); then state=stopped; fi
+    on_server "docker stop -t 30 $NAME >/dev/null"
+    on_server "docker rm $NAME >/dev/null"
+  fi
+  state=replaced
+  start "$1" && probe
+}
+
+# A first deploy has no image to go back to, and the container retries the certificate by itself. So a
+# running container stays. A failed lego try waits 5 minutes, which is longer than the probe.
+stay_up() {
+  local logs check="$0 status"
+  [[ $(remote "docker inspect --format '{{.State.Running}}' $NAME 2>/dev/null || true") == true ]] || return 0
+  logs=$(remote "docker logs --tail 40 $NAME 2>&1") || true
+  printf '%s\n' "$logs" >&2
+  if [[ $logs == *cert-issue-failed* ]]; then
+    die "The first deploy is not complete. The certificate is not issued yet, so $APP_ORIGIN does not answer.
+The container $NAME stays running and tries again by itself. The wait starts at 5 minutes and doubles, up to 6 hours.
+Each failed try writes cert-issue-failed to the log, with the lego error. The app starts when the log shows cert-issued.
+To check it, run: $check"
+  fi
+  die "The first deploy is not complete. $APP_ORIGIN does not answer, and the log has no failed certificate try.
+The container $NAME stays running.
+To check it, run: $check"
+}
+
+go_back() {
+  on_server "docker logs --tail 40 $NAME" >&2 || true
+  on_server "docker rm -f $NAME >/dev/null"
+  [[ -n $1 ]] || die "There is no earlier image. NO CONTAINER RUNS."
+  if start "$1" && probe; then die "Went back to $1. It answers at $APP_ORIGIN."; fi
+  die "Went back to $1, and it does not answer either. Run: ssh $SSH_TARGET docker logs $NAME"
+}
+
+deploy() {
+  local image previous
+  image=$NAME:$(date -u +%Y%m%d%H%M%S)
+  require_settings
+  here bun run check
+  here bun test scripts/composer
+  here docker build --platform linux/amd64 -f scripts/composer/Dockerfile --label "$LABEL" -t "$image" .
+  previous=$(current_image)
+  if ((DRY_RUN)); then echo "local:  docker save $image | ssh $SSH_TARGET docker load"; else docker save "$image" | remote docker load; fi
+  on_server "$(layout "$APPDATA")"
+  send_secret "$DEPLOY_KEY" deploy-key
+  send_secret "$PAIR_TOKEN" pair-token
+  send_secret "$CLOUDFLARE_TOKEN" cloudflare-token
+  if ! replace_with "$image" "$previous"; then
+    [[ -n $previous ]] || stay_up
+    echo "The new container does not answer at $APP_ORIGIN. Its last log lines:" >&2
+    go_back "$previous"
+  fi
+  on_server "docker images $NAME --format '{{.Repository}}:{{.Tag}}' | grep -vxF -e $image${previous:+ -e $previous} | xargs -r docker rmi >/dev/null" || true
+  if ((DRY_RUN)); then echo "Dry run: nothing was built, sent, or changed. It assumed that a $NAME container exists."; else echo "Deployed $image at $APP_ORIGIN"; fi
+}
+
+rollback() {
+  local current previous
+  require_settings
+  current=$(current_image)
+  [[ -n $current ]] || die "No $NAME container exists on $SSH_TARGET."
+  previous=$(ask_server "docker images $NAME --format '{{.Repository}}:{{.Tag}}' | grep -vxF $current | sort | tail -n 1" "$NAME:20250101000000")
+  [[ -n $previous ]] || die "There is no earlier image on $SSH_TARGET."
+  replace_with "$previous" "$current" || go_back "$current"
+  echo "Rolled back from $current to $previous at $APP_ORIGIN"
+}
+
+DRY_RUN=0
+case ${1:-}${2:+ $2} in
+  print-flags) printf '%s\n' "${RUN_FLAGS[@]}" ;;
+  "print-layout "*) layout "$2" ;;
+  init) init ;;
+  status) load_config && on_server "docker ps -a --filter name=^$NAME\$ --format '{{.Names}} {{.Image}} {{.Status}}'; docker images $NAME --format '{{.Repository}}:{{.Tag}} {{.Size}}'; docker logs --tail 20 $NAME" ;;
+  rollback) cd "$(dirname "$0")/../.." && load_config && trap put_back EXIT && rollback ;;
+  deploy) cd "$(dirname "$0")/../.." && load_config && trap put_back EXIT && deploy ;;
+  "deploy --dry-run") DRY_RUN=1 && cd "$(dirname "$0")/../.." && load_config && deploy ;;
+  *) die "usage: $0 init | deploy [--dry-run] | status | rollback" ;;
+esac

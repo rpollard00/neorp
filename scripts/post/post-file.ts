@@ -2,12 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { isMap, isScalar, parseDocument, stringify, type Document } from "yaml";
-import {
-  POSTS_DIR,
-  postSchema,
-  slugFromPath,
-  type PostData,
-} from "../../src/lib/post";
+import { postSchema, type PostData } from "../../src/lib/post";
+import { POSTS_DIR, slugFromPath, slugify } from "../../src/lib/post-plain";
 import { UserError } from "./user-error";
 
 export const ROOT = resolve(import.meta.dir, "../..");
@@ -33,14 +29,6 @@ export type ParsedPost =
 
 export const locate = (entry: ParsedPost): { path: string; slug: string } =>
   entry.kind === "valid" ? entry.post : entry;
-
-export const slugify = (title: string) =>
-  title
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 
 export const parsePost = ({
   path,
