@@ -59,8 +59,11 @@ const answer = <T>(value: T | typeof CANCEL_SYMBOL): T => {
   return value;
 };
 
-const jj = (args: string[]) => {
-  const result = Bun.spawnSync(["jj", ...args], { cwd: ROOT });
+const jjIn = (cwd: string) => (args: string[]) => {
+  const result = Bun.spawnSync(["jj", ...args], {
+    cwd,
+    env: process.env,
+  });
   if (result.exitCode !== 0) {
     throw new UserError(
       `jj ${args.join(" ")} failed:\n${result.stderr.toString().trim()}`,
@@ -68,6 +71,8 @@ const jj = (args: string[]) => {
   }
   return result.stdout.toString().trim();
 };
+
+const jj = jjIn(ROOT);
 
 type Gate =
   | { kind: "passed" }
@@ -154,11 +159,22 @@ const gateError = ({
 };
 
 /** Fails before anything is written if `main` could not move to the post. */
-const preflight = () => {
+export const preflight = ({ cwd = ROOT }: { cwd?: string } = {}) => {
+  const jj = jjIn(cwd);
   const stale = jj(["workspace", "list", "-T", 'name ++ "\n"'])
     .split("\n")
     .filter((name) => name.startsWith(GATE_WORKSPACE));
   if (stale.length > 0) jj(["workspace", "forget", ...stale]);
+
+  if (jj(["git", "remote", "list"])) {
+    try {
+      jj(["git", "fetch"]);
+    } catch (error) {
+      throw new UserError(
+        `Could not check main against the remote. Check your connection, then publish again. Nothing was written.\n${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   const [moved] = jj([
     "log",
