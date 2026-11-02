@@ -7,7 +7,7 @@ import {
 } from "./plate-canvas";
 import { LANDS, type Footprint } from "./plate-lands";
 
-const SEEDS = Array.from({ length: 24 }, (_, i) => Math.imul(i + 1, 40503));
+const SEEDS = Array.from({ length: 200 }, (_, i) => Math.imul(i + 1, 40503));
 const ON_GROUND: Footprint = { on: "ground", width: 15, run: 0 };
 
 const paint = (name: keyof typeof LANDS, seed: number, print = ON_GROUND) => {

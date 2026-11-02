@@ -678,7 +678,7 @@ const mesas: PaintLand = (canvas, random, footprint) => {
     band: INK.back,
     shadeLeft,
   });
-  const x = mirror(inset + width + random.range(14, 22));
+  const x = mirror(inset + width + random.range(14, 18));
 
   const plain = rolling(random, { base: 48, amp: 1, knots: 3 });
   const surface = footprint
@@ -852,27 +852,27 @@ const fields: PaintLand = (canvas, random, footprint) => {
   const bright = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });
   const far = canvas.mix({ from: INK.horizon, to: INK.back, by: 4 });
   canvas.fillBelow(rolling(random, { base: row - 3, amp: 2, knots: 3 }), far);
+  // A subject keeps its own stretch of sky, so no cloud runs behind it.
+  const clear = footprint && [
+    x - 14 - (side > 0 ? footprint.run : 0),
+    x + 14 + (side < 0 ? footprint.run : 0),
+  ];
+  const cloud = ({
+    x: from,
+    y,
+    width,
+  }: Record<"x" | "y" | "width", number>) => {
+    const to = from + Math.round(width * 1.1);
+    if (clear && from <= clear[1] && to >= clear[0]) return;
+    strata(canvas, random, { x: from, y, width, ink: bright, under: far });
+  };
   const shift = random.range(0, 24);
-  strata(canvas, random, {
-    x: shift - 10,
-    y: row - 4,
-    width: random.range(56, 76),
-    ink: bright,
-    under: far,
-  });
-  strata(canvas, random, {
-    x: 84 + shift,
-    y: row - 2,
-    width: random.range(44, 70),
-    ink: bright,
-    under: far,
-  });
-  strata(canvas, random, {
+  cloud({ x: shift - 10, y: row - 4, width: random.range(56, 76) });
+  cloud({ x: 84 + shift, y: row - 2, width: random.range(44, 70) });
+  cloud({
     x: side < 0 ? random.range(70, 96) : random.range(10, 40),
     y: row - 13,
     width: random.range(40, 56),
-    ink: bright,
-    under: far,
   });
 
   const lift = canvas.mix({ from: INK.back, to: INK.horizon, by: 3 });
