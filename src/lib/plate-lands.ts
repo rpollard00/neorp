@@ -777,7 +777,7 @@ const mesas: PaintLand = (canvas, random, footprint) => {
     band: INK.back,
     shadeLeft,
   });
-  const butte = random.range(138, 146);
+  const butte = random.range(146, 152);
   const butteWide = random.range(6, 9);
   const [bx0, bx1] = [mirror(butte), mirror(butte + butteWide)].sort(
     (a, b) => a - b,

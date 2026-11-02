@@ -73,7 +73,8 @@ const inksOver = (
   const seen = new Map<string, Map<Ink, number>>();
   const look = (role: string, [x, y]: Cell) => {
     if (taken.has(keyOf([x, y]))) return;
-    if (y >= stage.surface[Math.min(W - 1, Math.max(0, x))]) return;
+    const surface = stage.surface[Math.min(W - 1, Math.max(0, x))];
+    if (y >= surface) return;
     const counts = seen.get(role) ?? new Map<Ink, number>();
     const ink = canvas.get(x, y);
     seen.set(role, counts.set(ink, (counts.get(ink) ?? 0) + 1));
@@ -278,7 +279,7 @@ const road: PlanSubject = (random) => {
       });
       const under = new Map<Ink, number>();
       for (const { y, from, to } of surfaceCells) {
-        for (const x of [from - 1, to + 1]) {
+        for (let x = Math.max(0, from); x <= Math.min(W - 1, to); x++) {
           const ink = canvas.get(x, y);
           under.set(ink, (under.get(ink) ?? 0) + 1);
         }
@@ -290,7 +291,7 @@ const road: PlanSubject = (random) => {
           canvas.mix({ from: INK.back, to: INK.front, by: 4 }),
           canvas.mix({ from: INK.horizon, to: INK.sun, by: 3 }),
         ],
-        min: GLOWS,
+        min: SETS_OFF,
       });
       for (const { y, from, to } of surfaceCells) {
         canvas.hline(from, to, y, surface);
@@ -320,9 +321,12 @@ const road: PlanSubject = (random) => {
         x: x - (widthOf(rows) >> 1),
         y,
       }));
-      const inks = inksOver(canvas, stage, marks, wires);
-      paint(canvas, wires, inks["#"]);
-      for (const mark of marks) canvas.sprite({ ...mark, inks });
+      // A telegraph line is a dark line. Where it crosses dark land it hides,
+      // as a real one does.
+      paint(canvas, wires, INK.front);
+      for (const mark of marks) {
+        canvas.sprite({ ...mark, inks: { "#": INK.front } });
+      }
     },
   };
 };

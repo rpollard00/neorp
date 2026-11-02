@@ -94,29 +94,58 @@ describe.each(PAIRS)("$name", (pair) => {
     }
   });
 
-  test("its edge stands apart from what is behind it on every palette", () => {
-    for (const palette of PALETTE_NAMES) {
-      for (const seed of SEEDS.slice(0, 6)) {
-        const { canvas, stage, before, added } = drawn(pair, seed);
-        const colours = resolveInks(canvas, PALETTES[palette]);
-        const mine = new Set(added);
-        let edges = 0;
-        let apart = 0;
-        for (const i of added) {
-          for (const j of [i - 1, i + 1, i - PLATE_WIDTH]) {
-            if (j < 0 || mine.has(j)) continue;
-            const row = rowOf(j);
-            if (row >= stage.surface[j % PLATE_WIDTH]) continue;
-            edges++;
-            const pair = [colours[canvas.pixels[i]], colours[before[j]]];
-            if (contrast(pair[0], pair[1]) >= EDGE_CONTRAST) apart++;
+  // A telegraph line is dark by design and may hide against dark rock.
+  test.skipIf(pair.subject === "road")(
+    "its edge stands apart from what is behind it on every palette",
+    () => {
+      for (const palette of PALETTE_NAMES) {
+        for (const seed of SEEDS.slice(0, 6)) {
+          const { canvas, stage, before, added } = drawn(pair, seed);
+          const colours = resolveInks(canvas, PALETTES[palette]);
+          const mine = new Set(added);
+          let edges = 0;
+          let apart = 0;
+          for (const i of added) {
+            for (const j of [i - 1, i + 1, i - PLATE_WIDTH]) {
+              if (j < 0 || mine.has(j)) continue;
+              const row = rowOf(j);
+              if (row >= stage.surface[j % PLATE_WIDTH]) continue;
+              edges++;
+              const pair = [colours[canvas.pixels[i]], colours[before[j]]];
+              if (contrast(pair[0], pair[1]) >= EDGE_CONTRAST) apart++;
+            }
           }
+          if (edges > 0)
+            expect(apart / edges).toBeGreaterThanOrEqual(EDGE_FLOOR);
         }
-        if (edges > 0) expect(apart / edges).toBeGreaterThanOrEqual(EDGE_FLOOR);
       }
-    }
-  });
+    },
+  );
 });
+
+describe.each(PAIRS.filter(({ subject }) => subject === "road"))(
+  "$name",
+  (pair) => {
+    test("keeps its surface apart from the land on every palette", () => {
+      for (const palette of PALETTE_NAMES) {
+        for (const seed of SEEDS) {
+          const { canvas, stage, before, added } = drawn(pair, seed);
+          const colours = resolveInks(canvas, PALETTES[palette]);
+          const surface = added.filter(
+            (i) =>
+              rowOf(i) > stage.surface[i % PLATE_WIDTH] &&
+              canvas.pixels[i] !== INK.front,
+          );
+          const apart = surface.filter(
+            (i) =>
+              contrast(colours[canvas.pixels[i]], colours[before[i]]) >= 1.5,
+          );
+          expect(apart.length / surface.length).toBeGreaterThanOrEqual(0.9);
+        }
+      }
+    });
+  },
+);
 
 describe("a subject on a stage", () => {
   const sky = () => {
@@ -158,6 +187,19 @@ describe("a subject on a stage", () => {
         const faces = Math.sign(meanColumn(bright) - meanColumn(dim));
         expect(faces).toBe(Math.sign(light));
       }
+    }
+  });
+
+  test("draws a telegraph line in the dark body ink", () => {
+    for (let seed = 0; seed < 12; seed++) {
+      const { canvas, added } = drawOn(
+        "road",
+        { surface: flat(40), x: 50, light: 1000 },
+        seed,
+      );
+      const line = added.filter((i) => rowOf(i) < 40);
+      expect(line.length).toBeGreaterThan(0);
+      for (const i of line) expect(canvas.pixels[i]).toBe(INK.front);
     }
   });
 
