@@ -121,7 +121,11 @@ const ringed: PaintWorld = (canvas, random) => {
       [INK.middle, 0.5],
       [INK.horizon, 0.5],
     ],
-    from: [canvas.mix({ from: INK.back, to: INK.front, by: 2 }), band],
+    from: [
+      canvas.mix({ from: INK.back, to: INK.front, by: 2 }),
+      INK.front,
+      band,
+    ],
     min: CLEAR_OF_HORIZON,
   });
   const ringInk = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });

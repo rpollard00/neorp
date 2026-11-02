@@ -663,7 +663,7 @@ const forest: PaintLand = (canvas, random, footprint) => {
   const clearing = random.range(50, 110);
   const open = footprint ? site : clearing;
   const ground = footprint
-    ? levelSite(swell(low, { x: site, top: 41, reach: 19 }), {
+    ? levelSite(swell(low, { x: site, top: 43, reach: 19 }), {
         x: site,
         width: footprint.width,
       })

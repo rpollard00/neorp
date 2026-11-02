@@ -50,7 +50,7 @@ const shares = (counts: ReadonlyMap<Ink, number>): Backdrop => {
   return [...counts].map(([ink, n]) => [ink, n / total]);
 };
 
-const READS = 2;
+const READS = 1.6;
 const SETS_OFF = 1.5;
 const GLOWS = 1.3;
 
@@ -71,10 +71,10 @@ const inksOver = (
     ...wires.map(keyOf),
   ]);
   const seen = new Map<string, Map<Ink, number>>();
-  const look = (role: string, [x, y]: Cell) => {
+  const look = (role: string, [x, y]: Cell, ground = false) => {
     if (taken.has(keyOf([x, y]))) return;
     const surface = stage.surface[Math.min(W - 1, Math.max(0, x))];
-    if (y >= surface) return;
+    if (y >= surface && !ground) return;
     const counts = seen.get(role) ?? new Map<Ink, number>();
     const ink = canvas.get(x, y);
     seen.set(role, counts.set(ink, (counts.get(ink) ?? 0) + 1));
@@ -86,6 +86,9 @@ const inksOver = (
     look(role, [x - 1, y]);
     look(role, [x + 1, y]);
     look(role, [x, y - 1]);
+    // A wall or a lit face must also part from the ground under it, or the
+    // subject reads as a bump in the land. The dark body may sit on it.
+    if (role !== "#") look(role, [x, y + 1], true);
   }
   for (const [x, y] of wires) {
     look("#", [x, y - 1]);
