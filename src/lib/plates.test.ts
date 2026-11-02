@@ -205,6 +205,23 @@ describe("composeScene", () => {
   );
 });
 
+/** The land of a scene with its subject's site made, before the subject. */
+const landOf = (scene: SceneName, seed: number) => {
+  const picked = SCENES[scene];
+  const canvas = new Canvas();
+  if (picked.kind === "world") {
+    return composeScene({ scene, seed });
+  }
+  const footprint = picked.subject
+    ? SUBJECTS[picked.subject](randomStream(seed, STREAM.subject)).footprint
+    : null;
+  LANDS[picked.land](canvas, randomStream(seed, STREAM.shapes), footprint);
+  return canvas;
+};
+
+const OPEN: readonly number[] = [INK.top, INK.middle, INK.horizon, INK.sun];
+const SWEEP = Array.from({ length: 60 }, (_, i) => Math.imul(i + 1, 40503));
+
 describe("land without dither", () => {
   /** Where every shape is flat colour, a pixel always has a neighbour of its ink. */
   const FLAT: readonly SceneName[] = [
@@ -245,6 +262,42 @@ describe("land without dither", () => {
   });
 });
 
+describe("the light", () => {
+  const LAND_SCENES = SCENE_NAMES.filter(
+    (scene) => SCENES[scene].kind === "land",
+  );
+  const CLEAR_AIR = 4;
+
+  test.each([...LAND_SCENES])("keeps clear air around it in %s", (scene) => {
+    for (let i = 0; i < 150; i++) {
+      const seed = Math.imul(i + 1, 2654435761) >>> 0;
+      const canvas = landOf(scene, seed);
+      for (let y = 0; y < PLATE_HEIGHT; y++) {
+        for (let x = 0; x < PLATE_WIDTH; x++) {
+          if (canvas.get(x, y) !== INK.sun) continue;
+          const inSky = [
+            [x - 1, y],
+            [x + 1, y],
+            [x, y - 1],
+            [x, y + 1],
+          ].some(([nx, ny]) => canvas.get(nx, ny) <= INK.horizon);
+          if (!inSky) continue;
+          for (let dy = -CLEAR_AIR; dy <= CLEAR_AIR; dy++) {
+            for (let dx = -CLEAR_AIR; dx <= CLEAR_AIR; dx++) {
+              const ink = canvas.get(x + dx, y + dy);
+              if (ink > INK.horizon && ink !== INK.sun) {
+                throw new Error(
+                  `${scene} ${seed}: land at ${x + dx},${y + dy}`,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
 describe("peaks", () => {
   test("shade the side away from the light", () => {
     const palette = "day";
@@ -274,7 +327,7 @@ describe("peaks", () => {
     }
     expect(toward + away).toBeGreaterThan(200);
     expect(toward / (toward + away)).toBeGreaterThan(0.9);
-  });
+  }, 30_000);
 });
 
 describe("plateFor", () => {

@@ -1,6 +1,7 @@
 import {
   clamp,
   crescent,
+  forDisc,
   INK,
   levelled,
   PLATE_HEIGHT as H,
@@ -56,24 +57,44 @@ const siteColumn = (random: Random, side: Side, run: number) => {
   return side < 0 ? inset : W - 1 - inset;
 };
 
+type Cloud = {
+  x: number;
+  y: number;
+  width: number;
+  /** Where the upper strips start and the under strip begins, in columns. */
+  cuts: readonly [number, number, number];
+};
+
+const cloudShape = (
+  random: Random,
+  { x, y, width }: { x: number; y: number; width: number },
+): Cloud => ({
+  x,
+  y,
+  width,
+  cuts: [
+    Math.round(width * (0.1 + random.next() * 0.14)),
+    Math.round(width * (0.55 + random.next() * 0.2)),
+    Math.round(width * (0.3 + random.next() * 0.25)),
+  ],
+});
+
+/** Long thin streaks, as a woodblock print draws a high cloud. */
+const cloudStrips = ({ x, y, width, cuts: [a, b, c] }: Cloud) =>
+  [
+    [x + a + 2, x + b - 1, y - 2, "ink"],
+    [x + a, x + width - Math.round(width * 0.12), y - 1, "ink"],
+    [x, x + width, y, "ink"],
+    [x + c, x + width + Math.round(width * 0.1), y + 1, "under"],
+  ] as const;
+
 const strata = (
   canvas: Canvas,
-  random: Random,
-  {
-    x,
-    y,
-    width,
-    ink,
-    under,
-  }: { x: number; y: number; width: number; ink: Ink; under: Ink },
+  { cloud, ink, under }: { cloud: Cloud; ink: Ink; under: Ink },
 ) => {
-  const a = Math.round(width * (0.1 + random.next() * 0.14));
-  const b = Math.round(width * (0.55 + random.next() * 0.2));
-  const c = Math.round(width * (0.3 + random.next() * 0.25));
-  canvas.hline(x + a + 2, x + b - 1, y - 2, ink);
-  canvas.hline(x + a, x + width - Math.round(width * 0.12), y - 1, ink);
-  canvas.hline(x, x + width, y, ink);
-  canvas.hline(x + c, x + width + Math.round(width * 0.1), y + 1, under);
+  for (const [x0, x1, y, role] of cloudStrips(cloud)) {
+    canvas.hline(x0, x1, y, role === "ink" ? ink : under);
+  }
 };
 
 const glitter = (
@@ -90,6 +111,33 @@ const glitter = (
   }
 };
 
+/** Pixels of sky kept clear between the light and the land. */
+const CLEAR_AIR = 4;
+/** Columns between the light and the nearest summit. */
+const SADDLE = 20;
+
+type Cell = readonly [x: number, y: number];
+
+const isClearAir = (canvas: Canvas, cells: readonly Cell[]) =>
+  cells.every(([x, y]) => {
+    if (y < 1 || x < 0 || x >= W) return false;
+    for (let dy = -CLEAR_AIR; dy <= CLEAR_AIR; dy++) {
+      for (let dx = -CLEAR_AIR; dx <= CLEAR_AIR; dx++) {
+        const [nx, ny] = [x + dx, y + dy];
+        const inside = nx >= 0 && nx < W && ny >= 0 && ny < H;
+        if (inside && canvas.get(nx, ny) > INK.horizon) return false;
+      }
+    }
+    return true;
+  });
+
+const discCells = (x: number, y: number, r: number) => {
+  const cells: Cell[] = [];
+  forDisc(r, (dx, dy) => cells.push([x + dx, y + dy]));
+  return cells;
+};
+
+/** Picks the light and where it hangs. Nothing is drawn until the land is. */
 const lights = (
   canvas: Canvas,
   random: Random,
@@ -107,45 +155,100 @@ const lights = (
     count: 34,
     alsoOnDarkSky: false,
   };
-  if (kind === "sun") {
-    canvas.disc({ x, y: Math.round(row * 0.5), r: 7, ink: INK.sun });
-  }
-  if (kind === "low") canvas.disc({ x, y: row - 3, r: 9, ink: INK.sun });
-  if (kind === "moon") {
-    crescent(canvas, {
-      x,
-      y: Math.min(11, Math.round(row * 0.3)),
-      r: 6,
-      ink: INK.sun,
-      side: x < W / 2 ? 1 : -1,
-    });
-  }
-  if (kind === "clouds") {
-    const ink = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });
-    const under = canvas.mix({ from: INK.horizon, to: INK.back, by: 4 });
-    const wide = random.range(38, 56);
-    const narrow = random.range(24, 34);
-    strata(canvas, random, {
-      x: siteSide > 0 ? random.range(14, 40) : W - wide - random.range(14, 40),
-      y: random.range(9, 13),
-      width: wide,
-      ink,
-      under,
-    });
-    strata(canvas, random, {
-      x:
-        siteSide > 0 ? random.range(66, 74) : W - narrow - random.range(66, 74),
-      y: random.range(18, 23),
-      width: narrow,
-      ink,
-      under,
-    });
-  }
+  const wide = kind === "clouds" ? random.range(38, 56) : 0;
+  const narrow = kind === "clouds" ? random.range(24, 34) : 0;
+  const clouds =
+    kind === "clouds"
+      ? [
+          cloudShape(random, {
+            x:
+              siteSide > 0
+                ? random.range(14, 40)
+                : W - wide - random.range(14, 40),
+            y: random.range(9, 13),
+            width: wide,
+          }),
+          cloudShape(random, {
+            x:
+              siteSide > 0
+                ? random.range(66, 74)
+                : W - narrow - random.range(66, 74),
+            y: random.range(18, 23),
+            width: narrow,
+          }),
+        ]
+      : [];
+  const disc =
+    kind === "sun"
+      ? { y: Math.round(row * 0.5), r: 7 }
+      : kind === "low"
+        ? { y: row - 3, r: 9 }
+        : kind === "moon"
+          ? { y: Math.min(11, Math.round(row * 0.3)), r: 6 }
+          : null;
   return {
     kind,
     shows,
+    disc: disc && { x, ...disc },
+    clouds,
     x: shows ? x : siteSide < 0 ? OFF_PLATE : -OFF_PLATE,
   };
+};
+
+type Light = ReturnType<typeof lights>;
+
+/** As low as planned, and as near its column, as clear air allows. */
+const findClearSpot = (
+  canvas: Canvas,
+  disc: { x: number; y: number; r: number },
+) => {
+  for (let y = disc.y; y > disc.r; y--) {
+    for (const shift of [0, -6, 6, -12, 12]) {
+      const x = disc.x + shift;
+      if (isClearAir(canvas, discCells(x, y, disc.r))) return { x, y };
+    }
+  }
+  return null;
+};
+
+/**
+ * Hangs the light once the land is drawn: as low as it was planned, but only
+ * where clear air surrounds it. A cloud that has no clear air is left out.
+ */
+const showLight = (canvas: Canvas, { kind, disc, clouds }: Light) => {
+  const spot = disc && findClearSpot(canvas, disc);
+  if (disc && spot) {
+    if (kind === "moon") {
+      crescent(canvas, {
+        ...spot,
+        r: disc.r,
+        ink: INK.sun,
+        side: spot.x < W / 2 ? 1 : -1,
+      });
+    } else {
+      canvas.disc({ ...spot, r: disc.r, ink: INK.sun });
+    }
+  }
+  const ink = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });
+  const under = canvas.mix({ from: INK.horizon, to: INK.back, by: 4 });
+  for (const planned of clouds) {
+    for (let y = planned.y; y >= 3; y--) {
+      const cloud = { ...planned, y };
+      const cells = cloudStrips(cloud).flatMap(([x0, x1, row]) =>
+        Array.from({ length: x1 - x0 + 1 }, (_, i): Cell => [x0 + i, row]),
+      );
+      if (
+        !isClearAir(
+          canvas,
+          cells.filter(([cx]) => cx >= 0 && cx < W),
+        )
+      ) {
+        continue;
+      }
+      strata(canvas, { cloud, ink, under });
+      break;
+    }
+  }
 };
 
 const swell = (
@@ -213,6 +316,7 @@ const sea: PaintLand = (canvas, random, footprint) => {
       { x, width: footprint.width },
     );
     canvas.fillBelow(headland, INK.front);
+    showLight(canvas, light);
     return { surface: headland, x, light: light.x };
   }
 
@@ -229,6 +333,7 @@ const sea: PaintLand = (canvas, random, footprint) => {
     if (shore[x] < H) canvas.set(x, shore[x] - 1, foam);
     canvas.rect(x, shore[x], x, H - 1, INK.front);
   }
+  showLight(canvas, light);
   return {
     surface: flat(row + random.range(7, 9)),
     x: siteColumn(random, side, 0),
@@ -324,6 +429,11 @@ const peaks: PaintLand = (canvas, random, footprint) => {
     siteSide: side,
   });
   const faces = (peak: number): Side => (light.x < peak ? -1 : 1);
+  // No summit stands under the sun or the moon: a saddle does.
+  const clearOfLight = (at: number) =>
+    Math.abs(at - light.x) < SADDLE
+      ? light.x + (at < light.x ? -SADDLE : SADDLE)
+      : at;
   const far = canvas.mix({ from: INK.horizon, to: INK.back, by: 3 });
   const mid = canvas.mix({ from: INK.horizon, to: INK.back, by: 6 });
   const midShade = canvas.mix({ from: INK.back, to: INK.front, by: 3 });
@@ -331,7 +441,7 @@ const peaks: PaintLand = (canvas, random, footprint) => {
   const snowShade = far;
 
   for (const at of [12, 58, 106, 150]) {
-    const peak = at + random.range(-6, 6);
+    const peak = clearOfLight(at + random.range(-6, 6));
     mountain(canvas, random, {
       x: peak,
       y: random.range(25, 31),
@@ -343,12 +453,12 @@ const peaks: PaintLand = (canvas, random, footprint) => {
   }
   // The main peaks leave a saddle at the site, so a subject has pale land
   // behind it and not a dark flank.
-  const spots = [x - side * 34, x - side * 88, x + side * 40];
+  const spots = [x - side * 34, x - side * 88, x + side * 40].map(clearOfLight);
   const byDistance = [...spots].sort(
     (a, b) => Math.abs(a - light.x) - Math.abs(b - light.x),
   );
   byDistance.forEach((at, i) => {
-    const peak = at + random.range(-5, 5);
+    const peak = clearOfLight(at + random.range(-5, 5));
     const y =
       i === byDistance.length - 1 ? random.range(14, 18) : random.range(20, 27);
     mountain(canvas, random, {
@@ -372,6 +482,7 @@ const peaks: PaintLand = (canvas, random, footprint) => {
     : foot;
   canvas.fillBelow(ground, INK.front);
   canvas.clearSpecks({ keep: SKY_AND_LIGHT });
+  showLight(canvas, light);
   return { surface: ground, x, light: light.x };
 };
 
@@ -478,6 +589,7 @@ const dunes: PaintLand = (canvas, random, footprint) => {
       })
     : flat(50);
   canvas.clearSpecks({ keep: SKY_AND_LIGHT });
+  showLight(canvas, light);
   return { surface, x, light: light.x };
 };
 
@@ -570,6 +682,7 @@ const forest: PaintLand = (canvas, random, footprint) => {
       x += random.range(7, 12);
     }
   }
+  showLight(canvas, light);
   return {
     surface: ground,
     x: site,
@@ -707,6 +820,7 @@ const mesas: PaintLand = (canvas, random, footprint) => {
     ),
     INK.front,
   );
+  showLight(canvas, light);
   return { surface, x, light: light.x };
 };
 
@@ -797,6 +911,7 @@ const lake: PaintLand = (canvas, random, footprint) => {
     ),
     INK.front,
   );
+  showLight(canvas, light);
   return footprint?.on === "water"
     ? {
         surface: flat(row + random.range(7, 9)),
@@ -867,7 +982,11 @@ const fields: PaintLand = (canvas, random, footprint) => {
   }: Record<"x" | "y" | "width", number>) => {
     const to = from + Math.round(width * 1.1);
     if (clear && from <= clear[1] && to >= clear[0]) return;
-    strata(canvas, random, { x: from, y, width, ink: bright, under: far });
+    strata(canvas, {
+      cloud: cloudShape(random, { x: from, y, width }),
+      ink: bright,
+      under: far,
+    });
   };
   const shift = random.range(0, 24);
   cloud({ x: shift - 10, y: row - 4, width: random.range(56, 76) });
