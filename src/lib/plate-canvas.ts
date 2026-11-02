@@ -36,6 +36,7 @@ type InkRecipe =
       over: Backdrop;
       from: readonly Ink[];
       min: number;
+      fallback?: Ink;
     };
 
 const BASE_COLOURS = {
@@ -163,12 +164,15 @@ export class Canvas {
     over,
     from,
     min,
+    fallback,
   }: {
     over: Backdrop;
     from: readonly Ink[];
     min: number;
+    /** Taken when nothing reaches `min`, in place of the best of `from`. */
+    fallback?: Ink;
   }): Ink {
-    return this.add({ kind: "legible", over, from, min });
+    return this.add({ kind: "legible", over, from, min, fallback });
   }
 
   set(x: number, y: number, ink: Ink) {
@@ -303,7 +307,7 @@ export const resolveInks = (
         (a, b) => reach(b) - reach(a) || mean(b) - mean(a),
       )[0];
       const first = recipe.from.find((ink) => reach(ink) >= LEGIBLE_SHARE);
-      colours.push(colours[first ?? best]);
+      colours.push(colours[first ?? recipe.fallback ?? best]);
     }
   }
   return colours;

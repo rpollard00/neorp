@@ -335,7 +335,7 @@ const sea: PaintLand = (canvas, random, footprint) => {
   }
   showLight(canvas, light);
   return {
-    surface: flat(row + random.range(7, 9)),
+    surface: flat(row + random.range(5, 7)),
     x: siteColumn(random, side, 0),
     light: light.x,
   };
@@ -644,13 +644,12 @@ const forest: PaintLand = (canvas, random, footprint) => {
   }
   const midRidge = rolling(random, { base: 48, amp: 3, knots: 3 });
   canvas.fillBelow(midRidge, mid);
+  // The middle trees leave a gap behind a subject, so it stands against the
+  // far forest and not against dark trees.
   for (let x = 1; x < W; x += random.range(5, 8)) {
-    pine(canvas, {
-      x,
-      base: midRidge[x] + 1,
-      size: random.pick([7, 9, 12]),
-      ink: mid,
-    });
+    const size = random.pick([7, 9, 12]);
+    if (footprint && Math.abs(x - site) < 16) continue;
+    pine(canvas, { x, base: midRidge[x] + 1, size, ink: mid });
   }
 
   const low = pixelContour(

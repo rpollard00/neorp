@@ -50,9 +50,8 @@ const shares = (counts: ReadonlyMap<Ink, number>): Backdrop => {
   return [...counts].map(([ink, n]) => [ink, n / total]);
 };
 
+/** Below this, two flat colours start to merge at 2×. */
 const READS = 1.6;
-const SETS_OFF = 1.5;
-const GLOWS = 1.3;
 
 /**
  * Inks for what is about to be drawn, from what the canvas holds around it.
@@ -64,12 +63,10 @@ const inksOver = (
   stage: Stage,
   marks: readonly Mark[],
   wires: readonly Cell[] = [],
-) => {
+): Record<string, Ink> => {
   const cells = marks.flatMap(cellsOf);
-  const taken = new Set([
-    ...cells.map(({ cell }) => keyOf(cell)),
-    ...wires.map(keyOf),
-  ]);
+  const roleAt = new Map(cells.map(({ role, cell }) => [keyOf(cell), role]));
+  const taken = new Set([...roleAt.keys(), ...wires.map(keyOf)]);
   const seen = new Map<string, Map<Ink, number>>();
   const look = (role: string, [x, y]: Cell, ground = false) => {
     if (taken.has(keyOf([x, y]))) return;
@@ -99,23 +96,51 @@ const inksOver = (
     canvas.mix({ from: INK.horizon, to: INK.sun, by });
   const dusky = (by: number) =>
     canvas.mix({ from: INK.horizon, to: INK.back, by });
-  return {
-    "#": canvas.legible({
-      over: over("#"),
-      from: [INK.front, pale(3)],
-      min: READS,
-    }),
+  const body = canvas.legible({
+    over: over("#"),
+    from: [INK.front, pale(3)],
+    min: READS,
+  });
+  // A part that cannot read on its own joins the body, so the subject is a
+  // clean silhouette and not a ghost.
+  const inks: Record<string, Ink> = {
+    "#": body,
     s: canvas.legible({
       over: over("s"),
       from: [INK.back, INK.front, pale(3)],
-      min: SETS_OFF,
+      min: READS,
+      fallback: body,
     }),
     l: canvas.legible({
       over: over("l"),
       from: [pale(4), dusky(4), dusky(7)],
-      min: GLOWS,
+      min: READS,
+      fallback: body,
     }),
-    "*": INK.sun,
+  };
+  const lampSides = new Map<Ink, number>();
+  for (const {
+    role,
+    cell: [x, y],
+  } of cells) {
+    if (role !== "*") continue;
+    for (const next of [
+      [x - 1, y],
+      [x + 1, y],
+      [x, y - 1],
+    ] as const) {
+      const near = roleAt.get(keyOf(next));
+      if (near === undefined || near === "*") continue;
+      lampSides.set(inks[near], (lampSides.get(inks[near]) ?? 0) + 1);
+    }
+  }
+  return {
+    ...inks,
+    "*": canvas.legible({
+      over: shares(lampSides),
+      from: [INK.sun, body, INK.front],
+      min: READS,
+    }),
   };
 };
 
@@ -129,7 +154,13 @@ const baseRow = (
   return Math.min(H - 1, Math.max(...columns));
 };
 
-const stand = (canvas: Canvas, stage: Stage, rows: Sprite) => {
+/** `seen` is the stage that inks are chosen against, when it differs. */
+const stand = (
+  canvas: Canvas,
+  stage: Stage,
+  rows: Sprite,
+  seen: Stage = stage,
+) => {
   const x = stage.x - (widthOf(rows) >> 1);
   const mark = {
     rows,
@@ -137,8 +168,11 @@ const stand = (canvas: Canvas, stage: Stage, rows: Sprite) => {
     y: baseRow(stage, { x, rows }) - rows.length + 1,
     flip: flipFor(stage),
   };
-  canvas.sprite({ ...mark, inks: inksOver(canvas, stage, [mark]) });
+  canvas.sprite({ ...mark, inks: inksOver(canvas, seen, [mark]) });
 };
+
+/** A hull sits in the water, so its inks are chosen against what is above. */
+const HULL = 3;
 
 const standing =
   (drawings: readonly Sprite[]): PlanSubject =>
@@ -155,7 +189,10 @@ const sailboat: PlanSubject = (random) => {
   return {
     footprint: { on: "water", width: widthOf(rows), run: 0 },
     draw: (canvas, stage) => {
-      stand(canvas, stage, rows);
+      stand(canvas, stage, rows, {
+        ...stage,
+        surface: stage.surface.map((row) => row - HULL),
+      });
       canvas.sprite({
         rows: WAKES,
         x: stage.x - (widthOf(WAKES) >> 1),
@@ -294,7 +331,7 @@ const road: PlanSubject = (random) => {
           canvas.mix({ from: INK.back, to: INK.front, by: 4 }),
           canvas.mix({ from: INK.horizon, to: INK.sun, by: 3 }),
         ],
-        min: SETS_OFF,
+        min: READS,
       });
       for (const { y, from, to } of surfaceCells) {
         canvas.hline(from, to, y, surface);

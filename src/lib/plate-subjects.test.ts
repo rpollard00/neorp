@@ -12,10 +12,23 @@ import {
 import { LANDS, type Stage } from "./plate-lands";
 import * as DRAWINGS from "./plate-sprites";
 import { SUBJECTS } from "./plate-subjects";
+import { STREAM } from "./plates";
 import { PALETTE_NAMES, PALETTES } from "./palettes";
 import { SCENE_NAMES, SCENES } from "./scenes";
 
-const SEEDS = Array.from({ length: 16 }, (_, i) => Math.imul(i + 1, 40503));
+/** The seeds a review found weak, then a spread. */
+const SEEDS = [
+  2026110201,
+  3668339987,
+  220824524,
+  2027808452,
+  126989,
+  535203442,
+  1306789390,
+  1353973201,
+  2812229512,
+  ...Array.from({ length: 8 }, (_, i) => Math.imul(i + 1, 40503)),
+];
 const TALLEST = 19;
 
 const PAIRS = SCENE_NAMES.flatMap((name) => {
@@ -27,8 +40,12 @@ const PAIRS = SCENE_NAMES.flatMap((name) => {
 
 const drawn = ({ land, subject }: (typeof PAIRS)[number], seed: number) => {
   const canvas = new Canvas();
-  const placed = SUBJECTS[subject](randomStream(seed, 2));
-  const stage = LANDS[land](canvas, randomStream(seed, 1), placed.footprint);
+  const placed = SUBJECTS[subject](randomStream(seed, STREAM.subject));
+  const stage = LANDS[land](
+    canvas,
+    randomStream(seed, STREAM.shapes),
+    placed.footprint,
+  );
   const before = canvas.pixels.slice();
   placed.draw(canvas, stage);
   const added = [...canvas.pixels.keys()].filter(
@@ -123,6 +140,83 @@ describe.each(PAIRS)("$name", (pair) => {
   );
 });
 
+/**
+ * Each part of a subject, one ink in one piece, must read on its own against
+ * what is behind it: a sail, a gable, a second building. A lamp or a door must
+ * read against the wall around it. Lines may hide against dark rock.
+ */
+const PART_CONTRAST = 1.6;
+const PART_FLOOR = 0.55;
+const LINES: readonly string[] = ["road", "pylons"];
+
+describe.each(PAIRS.filter(({ subject }) => !LINES.includes(subject)))(
+  "$name",
+  (pair) => {
+    test("reads part by part on every palette", () => {
+      // A hull sits in the water, and hides in it as a boat's hull does.
+      const inWater = pair.subject === "sailboat" ? 3 : 0;
+      for (const seed of SEEDS) {
+        const { canvas, stage, before, added } = drawn(pair, seed);
+        const mine = new Set(added);
+        const parts: number[][] = [];
+        const seen = new Set<number>();
+        for (const start of added) {
+          if (seen.has(start)) continue;
+          const part = [start];
+          seen.add(start);
+          for (let k = 0; k < part.length; k++) {
+            const i = part[k];
+            for (const j of [i - 1, i + 1, i - PLATE_WIDTH, i + PLATE_WIDTH]) {
+              const sameRow =
+                Math.abs((j % PLATE_WIDTH) - (i % PLATE_WIDTH)) <= 1;
+              if (seen.has(j) || !mine.has(j) || !sameRow) continue;
+              if (canvas.pixels[j] !== canvas.pixels[start]) continue;
+              seen.add(j);
+              part.push(j);
+            }
+          }
+          parts.push(part);
+        }
+        for (const palette of PALETTE_NAMES) {
+          const colours = resolveInks(canvas, PALETTES[palette]);
+          for (const part of parts) {
+            const ink = canvas.pixels[part[0]];
+            const inPart = new Set(part);
+            const sides = part.flatMap((i) =>
+              [i - 1, i + 1, i - PLATE_WIDTH, i + PLATE_WIDTH].filter(
+                (j) =>
+                  j >= 0 &&
+                  j < canvas.pixels.length &&
+                  !inPart.has(j) &&
+                  (mine.has(j) ||
+                    rowOf(j) < stage.surface[j % PLATE_WIDTH] - inWater),
+              ),
+            );
+            const outside = sides.filter((j) => !mine.has(j));
+            const recipe = canvas.recipes[ink];
+            const lamp =
+              recipe.kind === "legible" && recipe.from[0] === INK.sun;
+            if (part.length < 3 || (outside.length === 0 && !lamp)) continue;
+            const judged = outside.length > 0 ? outside : sides;
+            const edges = judged.length;
+            const apart = judged.filter((j) => {
+              const other = mine.has(j) ? canvas.pixels[j] : before[j];
+              return contrast(colours[ink], colours[other]) >= PART_CONTRAST;
+            }).length;
+            if (edges >= 6) {
+              expect({
+                palette,
+                seed,
+                part: apart / edges >= PART_FLOOR,
+              }).toEqual({ palette, seed, part: true });
+            }
+          }
+        }
+      }
+    });
+  },
+);
+
 describe.each(PAIRS.filter(({ subject }) => subject === "road"))(
   "$name",
   (pair) => {
@@ -178,7 +272,11 @@ describe("a subject on a stage", () => {
         const colours = resolveInks(canvas, PALETTES.dusk);
         const lum = (i: number) => luminance(colours[canvas.pixels[i]]);
         const lit = Math.max(...added.map(lum));
-        const body = added.filter((i) => canvas.pixels[i] !== INK.sun);
+        const isLamp = (ink: number) => {
+          const recipe = canvas.recipes[ink];
+          return recipe.kind === "legible" && recipe.from[0] === INK.sun;
+        };
+        const body = added.filter((i) => !isLamp(canvas.pixels[i]));
         const bright = body.filter(
           (i) => lum(i) === Math.max(...body.map(lum)),
         );
