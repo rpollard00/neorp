@@ -3,12 +3,13 @@ import {
   Canvas,
   contrast,
   INK,
+  luminance,
   PLATE_WIDTH,
   randomStream,
   resolveInks,
   type Sprite,
 } from "./plate-canvas";
-import { LANDS } from "./plate-lands";
+import { LANDS, type Stage } from "./plate-lands";
 import * as DRAWINGS from "./plate-sprites";
 import { SUBJECTS } from "./plate-subjects";
 import { PALETTE_NAMES, PALETTES } from "./palettes";
@@ -113,6 +114,75 @@ describe.each(PAIRS)("$name", (pair) => {
         }
         if (edges > 0) expect(apart / edges).toBeGreaterThanOrEqual(EDGE_FLOOR);
       }
+    }
+  });
+});
+
+describe("a subject on a stage", () => {
+  const sky = () => {
+    const canvas = new Canvas();
+    canvas.rect(0, 0, PLATE_WIDTH - 1, 59, INK.horizon);
+    return canvas;
+  };
+  const flat = (row: number) => new Array<number>(PLATE_WIDTH).fill(row);
+
+  const drawOn = (subject: keyof typeof SUBJECTS, stage: Stage, seed = 3) => {
+    const canvas = sky();
+    SUBJECTS[subject](randomStream(seed, 2)).draw(canvas, stage);
+    const added = [...canvas.pixels.keys()].filter(
+      (i) => canvas.pixels[i] !== INK.horizon,
+    );
+    return { canvas, added };
+  };
+
+  const meanColumn = (cells: readonly number[]) =>
+    cells.reduce((sum, i) => sum + (i % PLATE_WIDTH), 0) / cells.length;
+
+  test("turns its lit side toward the light", () => {
+    for (const light of [-1000, 1000]) {
+      for (let seed = 0; seed < 12; seed++) {
+        const { canvas, added } = drawOn(
+          "cabin",
+          { surface: flat(50), x: 80, light },
+          seed,
+        );
+        const colours = resolveInks(canvas, PALETTES.dusk);
+        const lum = (i: number) => luminance(colours[canvas.pixels[i]]);
+        const lit = Math.max(...added.map(lum));
+        const body = added.filter((i) => canvas.pixels[i] !== INK.sun);
+        const bright = body.filter(
+          (i) => lum(i) === Math.max(...body.map(lum)),
+        );
+        const dim = body.filter((i) => lum(i) < Math.max(...body.map(lum)));
+        expect(lit).toBeGreaterThan(0);
+        const faces = Math.sign(meanColumn(bright) - meanColumn(dim));
+        expect(faces).toBe(Math.sign(light));
+      }
+    }
+  });
+
+  test("runs a line of pylons toward the light", () => {
+    for (const light of [-1000, 1000]) {
+      const { added } = drawOn("pylons", { surface: flat(50), x: 80, light });
+      const towers = added.filter((i) => rowOf(i) > 40);
+      expect(Math.sign(meanColumn(towers) - 80)).toBe(Math.sign(light));
+    }
+  });
+
+  test("sinks its foot to the lowest ground under it", () => {
+    const slope = Array.from(
+      { length: PLATE_WIDTH },
+      (_, x) => 40 + ((x - 80) >> 1),
+    );
+    for (let seed = 0; seed < 12; seed++) {
+      const { added } = drawOn(
+        "tent",
+        { surface: slope, x: 80, light: 1000 },
+        seed,
+      );
+      const columns = added.map((i) => i % PLATE_WIDTH);
+      const lowest = Math.max(...columns.map((x) => slope[x]));
+      expect(Math.max(...added.map(rowOf))).toBeGreaterThanOrEqual(lowest);
     }
   });
 });

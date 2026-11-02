@@ -25,7 +25,7 @@ import { pickScene, SCENES, type SceneName } from "./scenes";
 
 export { PLATE_HEIGHT, PLATE_WIDTH };
 
-const STREAM = {
+export const STREAM = {
   scene: 0x5ce6d,
   shapes: 0x54a9e,
   subject: 0x5b1ec,

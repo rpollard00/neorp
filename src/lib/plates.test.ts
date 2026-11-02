@@ -1,10 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { INK, mixColours, resolveInks, rgb, type Rgb } from "./plate-canvas";
+import {
+  Canvas,
+  INK,
+  mixColours,
+  randomStream,
+  resolveInks,
+  rgb,
+  type Rgb,
+} from "./plate-canvas";
+import { LANDS } from "./plate-lands";
+import { SUBJECTS } from "./plate-subjects";
 import {
   composeScene,
   drawPlate,
   plateFor,
   PLATE_HEIGHT,
+  STREAM,
   PLATE_WIDTH,
   renderPlate,
 } from "./plates";
@@ -55,9 +66,26 @@ const colourCap = (scene: SceneName) => {
 };
 
 describe("renderPlate", () => {
-  test("gives the same pixels for the same input", () => {
-    const plate = { palette: "dusk", scene: "peaks-cabin", seed: 7 } as const;
-    expect(renderPlate(plate).pixels).toEqual(renderPlate(plate).pixels);
+  test.each([
+    { palette: "dusk", scene: "peaks-cabin", seed: 7 },
+    { palette: "night", scene: "fields", seed: 7 },
+    { palette: "dusk", scene: "ringed", seed: 7 },
+  ] as const)("gives the same pixels for $palette $scene", (plate) => {
+    const pixels = renderPlate(plate).pixels;
+    expect(renderPlate(plate).pixels).toEqual(pixels);
+    if (plate.scene !== "peaks-cabin") {
+      expect(pixelColours(pixels)).toContain(
+        plate.palette === "night"
+          ? key(rgb(STAR_COLOUR))
+          : key(
+              mixColours(
+                rgb(PALETTES.dusk.sky.middle),
+                rgb(PALETTES.dusk.sun),
+                5,
+              ),
+            ),
+      );
+    }
   });
 
   test.each([...SCENE_NAMES])(
@@ -124,7 +152,7 @@ describe("the palette changes colour only", () => {
       ),
     );
     return (
-      pairs.size === new Set([...pairs].map((p) => p.split("|")[0])).size ||
+      pairs.size === new Set([...pairs].map((p) => p.split("|")[0])).size &&
       pairs.size === new Set([...pairs].map((p) => p.split("|")[1])).size
     );
   };
@@ -139,6 +167,42 @@ describe("the palette changes colour only", () => {
       }
     }
   });
+});
+
+describe("composeScene", () => {
+  test("gives each purpose its own random stream", () => {
+    expect(new Set(Object.values(STREAM)).size).toBe(
+      Object.keys(STREAM).length,
+    );
+  });
+
+  const pairs = SCENE_NAMES.flatMap((name) => {
+    const scene = SCENES[name];
+    return scene.kind === "land" && scene.subject
+      ? [{ name, land: scene.land, subject: scene.subject }]
+      : [];
+  });
+
+  test.each(pairs)(
+    "draws the subject of $name over its land",
+    ({ name, land, subject }) => {
+      for (const seed of SEEDS) {
+        const bare = new Canvas();
+        const placed = SUBJECTS[subject](randomStream(seed, STREAM.subject));
+        const stage = LANDS[land](
+          bare,
+          randomStream(seed, STREAM.shapes),
+          placed.footprint,
+        );
+        const levelled = bare.pixels.slice();
+        placed.draw(bare, stage);
+        const whole = composeScene({ scene: name, seed }).pixels;
+        expect(whole).toEqual(bare.pixels);
+        const added = whole.filter((ink, i) => ink !== levelled[i]);
+        expect(added.length).toBeGreaterThan(0);
+      }
+    },
+  );
 });
 
 describe("land without dither", () => {
@@ -220,6 +284,19 @@ describe("plateFor", () => {
     expect(plate.url).toBe("/plates/hello-world.png");
     expect(PALETTE_NAMES).toContain(plate.palette);
     expect(SCENE_NAMES).toContain(plate.scene);
+  });
+
+  test("keeps the scene when `plate:` is set, and the palette when `scene:` is", () => {
+    for (let i = 0; i < 40; i++) {
+      const id = `post-${i}`;
+      const own = plateFor({ id, data: {} });
+      for (const plate of PALETTE_NAMES) {
+        expect(plateFor({ id, data: { plate } }).scene).toBe(own.scene);
+      }
+      for (const scene of SCENE_NAMES) {
+        expect(plateFor({ id, data: { scene } }).palette).toBe(own.palette);
+      }
+    }
   });
 
   test("honours `plate:` and `scene:`", () => {
