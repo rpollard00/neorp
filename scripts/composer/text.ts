@@ -236,7 +236,7 @@ export const revisedPostFile = ({
     const old = retitled.slice(entry.start, entry.end);
     if (!isEditableTags({ lines: old, value: entry.value })) return undefined;
   }
-  const plate = retitled.findIndex((text) => /^plate:/.test(text));
+  const plate = retitled.findIndex((text) => /^(?:plate|scene):/.test(text));
   const tagged = entry
     ? retitled.toSpliced(
         entry.start,

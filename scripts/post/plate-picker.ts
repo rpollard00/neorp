@@ -17,7 +17,8 @@ const SHOW_CURSOR = `${ESC}[?25h`;
 const KEYS = /\x1b\[[\d;]*[A-Za-z~]|\x1bO[A-Za-z]|[\s\S]/g;
 const HINT =
   "←/→ or h/l palette · ↑/↓ or k/j scene · enter to pick · esc to cancel";
-const RESERVED_LINES = 4;
+/** The shell prompt or the next question, under the picker. */
+const PROMPT_LINES = 1;
 const SIGNALS = [
   ["SIGTERM", 143],
   ["SIGHUP", 129],
@@ -135,8 +136,10 @@ export const readKeys = (chunk: string, start: PlateChoice): KeyResult => {
 };
 
 /**
- * The frontmatter for a pick. A value the user did not change keeps what the
- * post has, so a plate the slug already gives stays out of the file.
+ * The frontmatter for a pick. A value the user changed is written. A value
+ * the user left alone keeps what the post has: unset stays unset, so the slug
+ * keeps choosing, and a value the post sets stays set, even when it equals what
+ * the slug would give.
  */
 export const pickedFields = ({
   picked,
@@ -171,14 +174,17 @@ export const pickPlate = ({
   let drawn = 0;
   const clear = () => (drawn > 0 ? `${ESC}[${drawn}A\r${ESC}[J` : "");
   const draw = () => {
-    const lines = [
-      ...halfBlockLines(renderPlate({ ...choice, seed }), {
-        columns: stdout.columns,
-        lines: stdout.rows - RESERVED_LINES,
-      }),
+    const chrome = [
       paletteLine(choice.palette),
       sceneLine(choice.scene),
       styleText("dim", HINT),
+    ];
+    const lines = [
+      ...halfBlockLines(renderPlate({ ...choice, seed }), {
+        columns: stdout.columns,
+        lines: stdout.rows - chrome.length - PROMPT_LINES,
+      }),
+      ...chrome,
     ];
     stdout.write(clear() + lines.map((line) => `${line}\n`).join(""));
     drawn = lines.length;

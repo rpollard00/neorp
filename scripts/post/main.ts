@@ -161,9 +161,12 @@ const plate = async (argv: string[]) => {
     return;
   }
   await writePost(post, { ...post.data, ...fields });
-  console.log(
-    `plate: ${picked.palette}, scene: ${picked.scene} in ${displayPath(post.path)}`,
+  const written = (["plate", "scene"] as const).flatMap((key) =>
+    fields[key] && fields[key] !== post.data[key]
+      ? [`${key}: ${fields[key]}`]
+      : [],
   );
+  console.log(`${written.join(", ")} in ${displayPath(post.path)}`);
 };
 
 const publishCommand = async (argv: string[]) => {

@@ -385,6 +385,15 @@ New body
     );
   });
 
+  test("adds tags before a scene line when there is no plate", () => {
+    expect(
+      revise({
+        tags: ["z"],
+        current: "---\ntitle: T\nscene: gate\n---\nx\n",
+      }),
+    ).toBe('---\ntitle: "New"\ntags: ["z"]\nscene: gate\n---\n\nNew body\n');
+  });
+
   test("adds tags at the end when there is no plate", () => {
     expect(
       revise({
