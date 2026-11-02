@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { PALETTE_NAMES } from "../../src/lib/palettes";
 import { renderPlate } from "../../src/lib/plates";
-import { halfBlockLines } from "./plate-picker";
+import { SCENE_NAMES } from "../../src/lib/scenes";
+import {
+  halfBlockLines,
+  pickedFields,
+  readKeys,
+  type PlateChoice,
+} from "./plate-picker";
 
 const plate = renderPlate({ palette: "dusk", scene: "peaks", seed: 42 });
 
@@ -64,5 +71,77 @@ describe("halfBlockLines", () => {
     for (const line of halfBlockLines(plate, { columns: 80, lines: 50 })) {
       expect(line.endsWith("\x1b[0m")).toBe(true);
     }
+  });
+});
+
+describe("readKeys", () => {
+  const start: PlateChoice = { palette: "dusk", scene: "sea" };
+  const last = SCENE_NAMES[SCENE_NAMES.length - 1];
+  const moves: [string, Partial<PlateChoice>][] = [
+    ["\x1b[C", { palette: "dawn" }],
+    ["\x1bOC", { palette: "dawn" }],
+    ["l", { palette: "dawn" }],
+    ["\x1b[D", { palette: PALETTE_NAMES[PALETTE_NAMES.length - 1] }],
+    ["h", { palette: PALETTE_NAMES[PALETTE_NAMES.length - 1] }],
+    ["\x1b[B", { scene: SCENE_NAMES[1] }],
+    ["\x1bOB", { scene: SCENE_NAMES[1] }],
+    ["j", { scene: SCENE_NAMES[1] }],
+    ["\x1b[A", { scene: last }],
+    ["\x1bOA", { scene: last }],
+    ["k", { scene: last }],
+  ];
+
+  test.each(moves)("moves on %j and wraps", (keys, change) => {
+    expect(readKeys(keys, start)).toEqual({
+      choice: { ...start, ...change },
+      outcome: "open",
+    });
+  });
+
+  test("takes a burst of keys in one chunk", () => {
+    expect(readKeys("\x1b[C\x1b[Cjj\x1b[A", start)).toEqual({
+      choice: { palette: "day", scene: SCENE_NAMES[1] },
+      outcome: "open",
+    });
+  });
+
+  test("stops at enter, and later keys do nothing", () => {
+    expect(readKeys("j\rjj", start)).toEqual({
+      choice: { ...start, scene: SCENE_NAMES[1] },
+      outcome: "picked",
+    });
+  });
+
+  test("cancels on esc and interrupts on ctrl-c", () => {
+    expect(readKeys("\x1b", start).outcome).toBe("cancelled");
+    expect(readKeys("l\x03", start).outcome).toBe("interrupted");
+  });
+
+  test("keeps the same choice when no key moves it", () => {
+    expect(readKeys("x", start).choice).toBe(start);
+  });
+});
+
+describe("pickedFields", () => {
+  const shown = { palette: "dawn", scene: "peaks" } as const;
+
+  test("leaves out what the slug already gives", () => {
+    expect(pickedFields({ picked: shown, shown, data: {} })).toEqual({
+      plate: undefined,
+      scene: undefined,
+    });
+  });
+
+  test("keeps what the post has set when the pick does not change it", () => {
+    const data = { plate: "dawn", scene: "peaks" } as const;
+    expect(pickedFields({ picked: shown, shown, data })).toEqual(data);
+  });
+
+  test("writes a value only when the pick changes it", () => {
+    const picked = { palette: "dawn", scene: "gate" } as const;
+    expect(pickedFields({ picked, shown, data: {} })).toEqual({
+      plate: undefined,
+      scene: "gate",
+    });
   });
 });

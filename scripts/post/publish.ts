@@ -19,7 +19,7 @@ import { postState, type PostData } from "../../src/lib/post";
 import { formatDay, siteToday } from "../../src/lib/post-plain";
 import { plateFor } from "../../src/lib/plates";
 import { SITE } from "../../src/site";
-import { pickPlate } from "./plate-picker";
+import { pickedFields, pickPlate } from "./plate-picker";
 import {
   findPost,
   loadPosts,
@@ -286,11 +286,17 @@ const askTags = async (post: PostFile, knownTags: string[]) => {
 
 const askPlate = async (post: PostFile) => {
   const { seed, palette, scene } = plateFor({ id: post.slug, data: post.data });
+  const shown = { palette, scene };
   log.step("Plate");
-  const picked = await pickPlate({ seed, palette, scene });
-  const plate = picked && picked !== palette ? picked : post.data.plate;
-  log.info(`Plate: ${plate ?? `${palette} (from the slug)`}`);
-  return plate;
+  const picked = await pickPlate({ seed, ...shown });
+  const fields = pickedFields({
+    picked: picked ?? shown,
+    shown,
+    data: post.data,
+  });
+  log.info(`Plate: ${fields.plate ?? `${palette} (from the slug)`}`);
+  log.info(`Scene: ${fields.scene ?? `${scene} (from the slug)`}`);
+  return fields;
 };
 
 const askDate = async (initial: Date) => {
@@ -364,20 +370,23 @@ export const publish = async ({
 
   const description = await askDescription(post, yes);
   const tags = yes ? post.data.tags : await askTags(post, knownTags);
-  const plate = yes ? post.data.plate : await askPlate(post);
+  const plate = yes
+    ? { plate: post.data.plate, scene: post.data.scene }
+    : await askPlate(post);
   const initialDate = post.data.pubDate ?? siteToday(now);
   const pubDate = on ?? (yes ? initialDate : await askDate(initialDate));
 
-  const data: PostData = { ...post.data, description, tags, plate, pubDate };
+  const data: PostData = { ...post.data, description, tags, ...plate, pubDate };
   const goesLive = postState(data, now).kind === "published";
   const url = `${SITE.url}/posts/${post.slug}/`;
-  const palette = plateFor({ id: post.slug, data }).palette;
+  const { palette, scene } = plateFor({ id: post.slug, data });
   note(
     [
       `title        ${data.title}`,
       `description  ${description}`,
       `tags         ${tags?.length ? tags.join(", ") : "none"}`,
-      `plate        ${palette}${plate ? "" : " (from the slug)"}`,
+      `plate        ${palette}${plate.plate ? "" : " (from the slug)"}`,
+      `scene        ${scene}${plate.scene ? "" : " (from the slug)"}`,
       `date         ${formatDay(pubDate)}`,
       "",
       goesLive

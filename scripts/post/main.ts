@@ -2,7 +2,7 @@ import { parseArgs, styleText } from "node:util";
 import { postState, type PostState } from "../../src/lib/post";
 import { formatDay } from "../../src/lib/post-plain";
 import { plateFor } from "../../src/lib/plates";
-import { pickPlate } from "./plate-picker";
+import { pickedFields, pickPlate } from "./plate-picker";
 import {
   createPost,
   displayPath,
@@ -150,13 +150,20 @@ const plate = async (argv: string[]) => {
   const [arg] = positionals;
   if (arg === undefined || positionals.length > 1) throw usage("plate");
   const post = await findPost(arg);
-  const picked = await pickPlate(plateFor({ id: post.slug, data: post.data }));
-  if (!picked || picked === post.data.plate) {
+  const shown = plateFor({ id: post.slug, data: post.data });
+  const picked = await pickPlate(shown);
+  const fields = picked && pickedFields({ picked, shown, data: post.data });
+  if (
+    !fields ||
+    (fields.plate === post.data.plate && fields.scene === post.data.scene)
+  ) {
     console.log(`${displayPath(post.path)} is unchanged.`);
     return;
   }
-  await writePost(post, { ...post.data, plate: picked });
-  console.log(`plate: ${picked} in ${displayPath(post.path)}`);
+  await writePost(post, { ...post.data, ...fields });
+  console.log(
+    `plate: ${picked.palette}, scene: ${picked.scene} in ${displayPath(post.path)}`,
+  );
 };
 
 const publishCommand = async (argv: string[]) => {
@@ -185,10 +192,10 @@ Commands:
   list
       Every post with its state, date, and word count.
   plate <slug>
-      Pick the palette for the post's plate.
+      Pick the palette and the scene for the post's plate.
   publish [slug] [--on YYYY-MM-DD] [--yes]
-      Ask for what the post still needs (description, tags, plate, date) and
-      write it. Commit the post with jj directly below the working copy, build
+      Ask for what the post still needs (description, tags, plate, scene, date)
+      and write it. Commit the post with jj directly below the working copy, build
       that commit, move main to it, and push. A failed build undoes it all. A
       date after today schedules the post. --yes skips the questions that
       already have answers. Without a slug, pick from the drafts and scheduled
