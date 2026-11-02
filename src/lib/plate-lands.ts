@@ -33,7 +33,6 @@ export type Stage = {
   x: number;
   /** The column of the light. It is off the plate when no disc shows. */
   light: number;
-  behind: readonly Ink[];
 };
 
 export type PaintLand = (
@@ -47,8 +46,6 @@ const SIDES: readonly Side[] = [-1, 1];
 
 type LightKind = "sun" | "low" | "moon" | "clouds" | "bare";
 const OFF_PLATE = 1000;
-
-const SKY_BEHIND = [INK.middle, INK.horizon];
 
 const flat = (row: number) => new Array<number>(W).fill(row);
 
@@ -104,7 +101,11 @@ const lights = (
   const kind = random.pick(kinds);
   const x = side < 0 ? random.range(106, 130) : random.range(30, 54);
   const shows = kind === "sun" || kind === "low" || kind === "moon";
-  canvas.stars = { limit: Math.round(row * 0.7), count: 34, darkSkies: false };
+  canvas.stars = {
+    limit: Math.round(row * 0.7),
+    count: 34,
+    darkSkies: false,
+  };
   if (kind === "sun") {
     canvas.disc({ x, y: Math.round(row * 0.5), r: 7, ink: INK.sun });
   }
@@ -153,17 +154,6 @@ const swell = (
     contour.map((v, i) => {
       const d = (i - x) / reach;
       return v + (top - v) * Math.exp(-d * d);
-    }),
-  );
-
-const receding = (
-  contour: readonly number[],
-  { x, toward }: { x: number; toward: Side },
-) =>
-  tidy(
-    contour.map((v, i) => {
-      const t = clamp((toward * (i - x)) / 90, -0.5, 1);
-      return v + 1 - 6 * t;
     }),
   );
 
@@ -221,7 +211,7 @@ const sea: PaintLand = (canvas, random, footprint) => {
       { x, width: footprint.width },
     );
     canvas.fillBelow(headland, INK.front);
-    return { surface: headland, x, light: light.x, behind: SKY_BEHIND };
+    return { surface: headland, x, light: light.x };
   }
 
   const spit = spline([
@@ -241,7 +231,6 @@ const sea: PaintLand = (canvas, random, footprint) => {
     surface: flat(row + random.range(7, 9)),
     x: siteColumn(random, side, 0),
     light: light.x,
-    behind: SKY_BEHIND,
   };
 };
 
@@ -374,15 +363,13 @@ const peaks: PaintLand = (canvas, random, footprint) => {
   canvas.fillBelow(rolling(random, { base: 50, amp: 3, knots: 4 }), INK.back);
   const foot = rolling(random, { base: 55, amp: 2, knots: 3 });
   const ground = footprint
-    ? levelSite(
-        footprint.run > 0
-          ? receding(foot, { x, toward: side < 0 ? 1 : -1 })
-          : swell(foot, { x, top: 45, reach: 26 }),
-        { x, width: footprint.width },
-      )
+    ? levelSite(swell(foot, { x, top: 45, reach: 26 }), {
+        x,
+        width: footprint.width,
+      })
     : foot;
   canvas.fillBelow(ground, INK.front);
-  return { surface: ground, x, light: light.x, behind: [far, INK.horizon] };
+  return { surface: ground, x, light: light.x };
 };
 
 type Dune = {
@@ -487,7 +474,7 @@ const dunes: PaintLand = (canvas, random, footprint) => {
         level: footprint.width + 4,
       })
     : flat(50);
-  return { surface, x, light: light.x, behind: [midLit, INK.horizon] };
+  return { surface, x, light: light.x };
 };
 
 const PINES: Record<number, readonly number[]> = {
@@ -583,7 +570,6 @@ const forest: PaintLand = (canvas, random, footprint) => {
     surface: ground,
     x: site,
     light: light.x,
-    behind: [far, INK.horizon],
   };
 };
 
@@ -716,7 +702,7 @@ const mesas: PaintLand = (canvas, random, footprint) => {
     ),
     INK.front,
   );
-  return { surface, x, light: light.x, behind: SKY_BEHIND };
+  return { surface, x, light: light.x };
 };
 
 const lake: PaintLand = (canvas, random, footprint) => {
@@ -811,13 +797,11 @@ const lake: PaintLand = (canvas, random, footprint) => {
         surface: flat(row + random.range(7, 9)),
         x: siteColumn(random, side, 0),
         light: light.x,
-        behind: SKY_BEHIND,
       }
     : {
         surface: near,
         x: hillSite,
         light: light.x,
-        behind: SKY_BEHIND,
       };
 };
 
@@ -933,7 +917,6 @@ const fields: PaintLand = (canvas, random, footprint) => {
     surface: edges[0],
     x,
     light: side < 0 ? OFF_PLATE : -OFF_PLATE,
-    behind: [far, INK.horizon],
   };
 };
 

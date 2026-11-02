@@ -25,12 +25,15 @@ export const INK = {
 type BaseInk = (typeof INK)[keyof typeof INK];
 export type Ink = number;
 
+/** What lies behind something: each ink with its share of the edge. */
+export type Backdrop = readonly (readonly [ink: Ink, share: number])[];
+
 type InkRecipe =
   | { kind: "base"; ink: BaseInk }
   | { kind: "mix"; from: BaseInk; to: BaseInk; by: number }
   | {
       kind: "legible";
-      over: readonly Ink[];
+      over: Backdrop;
       from: readonly Ink[];
       min: number;
     };
@@ -45,6 +48,7 @@ const BASE_COLOURS = {
 } satisfies Record<BaseInk, (palette: Palette) => string>;
 
 const MIX_STEPS = 8;
+const LEGIBLE_SHARE = 0.9;
 
 const linear = (channel: number) => {
   const v = channel / 255;
@@ -158,7 +162,7 @@ export class Canvas {
     from,
     min,
   }: {
-    over: readonly Ink[];
+    over: Backdrop;
     from: readonly Ink[];
     min: number;
   }): Ink {
@@ -230,10 +234,24 @@ export const resolveInks = (
         mixColours(colours[recipe.from], colours[recipe.to], recipe.by),
       );
     } else {
-      const worst = (ink: Ink) =>
-        Math.min(...recipe.over.map((o) => contrast(colours[ink], colours[o])));
-      const best = [...recipe.from].sort((a, b) => worst(b) - worst(a))[0];
-      const first = recipe.from.find((i) => worst(i) >= recipe.min);
+      const reach = (ink: Ink) =>
+        recipe.over.reduce(
+          (sum, [other, share]) =>
+            contrast(colours[ink], colours[other]) >= recipe.min
+              ? sum + share
+              : sum,
+          0,
+        );
+      const mean = (ink: Ink) =>
+        recipe.over.reduce(
+          (sum, [other, share]) =>
+            sum + share * contrast(colours[ink], colours[other]),
+          0,
+        );
+      const best = [...recipe.from].sort(
+        (a, b) => reach(b) - reach(a) || mean(b) - mean(a),
+      )[0];
+      const first = recipe.from.find((ink) => reach(ink) >= LEGIBLE_SHARE);
       colours.push(colours[first ?? best]);
     }
   }

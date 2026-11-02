@@ -30,12 +30,12 @@ const planetInks = (canvas: Canvas) => {
   const hill = (by: number) =>
     canvas.mix({ from: INK.back, to: INK.horizon, by });
   const face = canvas.legible({
-    over: [INK.horizon],
+    over: [[INK.horizon, 1]],
     from: [hill(5), pale(3)],
     min: CLEAR_OF_HORIZON,
   });
   const shade = canvas.legible({
-    over: [face],
+    over: [[face, 1]],
     from: [hill(3), pale(1)],
     min: 1.2,
   });
@@ -344,7 +344,7 @@ const mega: PaintWorld = (canvas, random) => {
   const row = random.range(42, 45);
   heavens(canvas, row);
   const haze = canvas.legible({
-    over: [INK.horizon],
+    over: [[INK.horizon, 1]],
     from: [
       canvas.mix({ from: INK.horizon, to: INK.back, by: 5 }),
       canvas.mix({ from: INK.horizon, to: INK.sun, by: 2 }),

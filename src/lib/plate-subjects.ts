@@ -2,6 +2,7 @@ import {
   INK,
   PLATE_HEIGHT as H,
   PLATE_WIDTH as W,
+  type Backdrop,
   type Canvas,
   type Ink,
   type Random,
@@ -31,23 +32,83 @@ export type PlanSubject = (random: Random) => PlacedSubject;
 
 const widthOf = (rows: Sprite) => rows[0].length;
 
-const READS = 2.2;
+type Mark = { rows: Sprite; x: number; y: number; flip?: boolean };
+type Cell = readonly [x: number, y: number];
+
+const cellsOf = ({ rows, x, y, flip }: Mark) =>
+  rows.flatMap((row, j) =>
+    [...row].flatMap((_, i) => {
+      const role = row[flip ? row.length - 1 - i : i];
+      return role === "." ? [] : [{ role, cell: [x + i, y + j] as Cell }];
+    }),
+  );
+
+const keyOf = ([x, y]: Cell) => y * W + x;
+
+const shares = (counts: ReadonlyMap<Ink, number>): Backdrop => {
+  const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
+  return [...counts].map(([ink, n]) => [ink, n / total]);
+};
+
+const READS = 2;
+const SETS_OFF = 1.5;
 const GLOWS = 1.3;
 
-const subjectInks = (canvas: Canvas, { behind: over }: Stage) => {
+/**
+ * Inks for what is about to be drawn, from what the canvas holds around it.
+ * Only what shows above the land counts: a mark stands on the land, and its
+ * silhouette is what reads.
+ */
+const inksOver = (
+  canvas: Canvas,
+  stage: Stage,
+  marks: readonly Mark[],
+  wires: readonly Cell[] = [],
+) => {
+  const cells = marks.flatMap(cellsOf);
+  const taken = new Set([
+    ...cells.map(({ cell }) => keyOf(cell)),
+    ...wires.map(keyOf),
+  ]);
+  const seen = new Map<string, Map<Ink, number>>();
+  const look = (role: string, [x, y]: Cell) => {
+    if (taken.has(keyOf([x, y]))) return;
+    if (y >= stage.surface[Math.min(W - 1, Math.max(0, x))]) return;
+    const counts = seen.get(role) ?? new Map<Ink, number>();
+    const ink = canvas.get(x, y);
+    seen.set(role, counts.set(ink, (counts.get(ink) ?? 0) + 1));
+  };
+  for (const {
+    role,
+    cell: [x, y],
+  } of cells) {
+    look(role, [x - 1, y]);
+    look(role, [x + 1, y]);
+    look(role, [x, y - 1]);
+  }
+  for (const [x, y] of wires) {
+    look("#", [x, y - 1]);
+    look("#", [x, y + 1]);
+  }
+  const over = (role: string) => shares(seen.get(role) ?? new Map());
   const pale = (by: number) =>
     canvas.mix({ from: INK.horizon, to: INK.sun, by });
-  const dusky = canvas.mix({ from: INK.horizon, to: INK.back, by: 4 });
+  const dusky = (by: number) =>
+    canvas.mix({ from: INK.horizon, to: INK.back, by });
   return {
-    "#": canvas.legible({ over, from: [INK.front, pale(3)], min: READS }),
-    s: canvas.legible({
-      over,
-      from: [INK.back, INK.front, pale(3)],
+    "#": canvas.legible({
+      over: over("#"),
+      from: [INK.front, pale(3)],
       min: READS,
     }),
+    s: canvas.legible({
+      over: over("s"),
+      from: [INK.back, INK.front, pale(3)],
+      min: SETS_OFF,
+    }),
     l: canvas.legible({
-      over: [INK.horizon],
-      from: [pale(4), dusky],
+      over: over("l"),
+      from: [pale(4), dusky(4), dusky(7)],
       min: GLOWS,
     }),
     "*": INK.sun,
@@ -56,7 +117,6 @@ const subjectInks = (canvas: Canvas, { behind: over }: Stage) => {
 
 const flipFor = ({ x, light }: Stage) => light > x;
 
-/** The lowest surface under `rows`, so that no corner floats. */
 const baseRow = (
   { surface }: Stage,
   { x, rows }: { x: number; rows: Sprite },
@@ -67,13 +127,13 @@ const baseRow = (
 
 const stand = (canvas: Canvas, stage: Stage, rows: Sprite) => {
   const x = stage.x - (widthOf(rows) >> 1);
-  canvas.sprite({
+  const mark = {
     rows,
     x,
     y: baseRow(stage, { x, rows }) - rows.length + 1,
-    inks: subjectInks(canvas, stage),
     flip: flipFor(stage),
-  });
+  };
+  canvas.sprite({ ...mark, inks: inksOver(canvas, stage, [mark]) });
 };
 
 const standing =
@@ -102,29 +162,27 @@ const sailboat: PlanSubject = (random) => {
   };
 };
 
-const wire = (
-  canvas: Canvas,
-  {
-    x0,
-    y0,
-    x1,
-    y1,
-    sag,
-    ink,
-  }: {
-    x0: number;
-    y0: number;
-    x1: number;
-    y1: number;
-    sag: number;
-    ink: Ink;
-  },
-) => {
-  for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+const wire = ({
+  x0,
+  y0,
+  x1,
+  y1,
+  sag,
+}: {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  sag: number;
+}): Cell[] =>
+  Array.from({ length: Math.abs(x1 - x0) + 1 }, (_, i) => {
+    const x = Math.min(x0, x1) + i;
     const t = (x - x0) / (x1 - x0);
-    const y = y0 + (y1 - y0) * t + sag * 4 * t * (1 - t);
-    canvas.set(x, Math.round(y), ink);
-  }
+    return [x, Math.round(y0 + (y1 - y0) * t + sag * 4 * t * (1 - t))];
+  });
+
+const paint = (canvas: Canvas, cells: readonly Cell[], ink: Ink) => {
+  for (const [x, y] of cells) canvas.set(x, y, ink);
 };
 
 const PYLON_LINE = [
@@ -138,44 +196,46 @@ const pylons: PlanSubject = () => ({
   footprint: { on: "ground", width: widthOf(PYLONS.large), run: 64 },
   draw: (canvas, stage) => {
     const dir = stage.light > stage.x ? 1 : -1;
-    const inks = subjectInks(canvas, stage);
-    const placed = PYLON_LINE.map(({ rows, at, arm }) => {
+    const towers = PYLON_LINE.map(({ rows, at, arm }) => {
       const x = stage.x + dir * at;
       const left = x - (widthOf(rows) >> 1);
       const top = baseRow(stage, { x: left, rows }) - rows.length + 1;
       return { rows, x, left, top, tip: (widthOf(rows) >> 1) - 1, arm };
     });
-    placed.forEach((tower, i) => {
+    const wires = towers.flatMap((tower, i) => {
       const y = tower.top + tower.arm;
-      const next = placed[i + 1];
-      if (next) {
-        wire(canvas, {
-          x0: tower.x + dir * tower.tip,
-          y0: y,
-          x1: next.x - dir * next.tip,
-          y1: next.top + next.arm,
-          sag: 2.4 - i * 0.7,
-          ink: inks["#"],
-        });
-      }
-      if (i === 0) {
-        wire(canvas, {
-          x0: tower.x - dir * tower.tip,
-          y0: y,
-          x1: tower.x - dir * 70,
-          y1: y + 7,
-          sag: 2,
-          ink: inks["#"],
-        });
-      }
+      const next = towers[i + 1];
+      const onward = next
+        ? wire({
+            x0: tower.x + dir * tower.tip,
+            y0: y,
+            x1: next.x - dir * next.tip,
+            y1: next.top + next.arm,
+            sag: 2.4 - i * 0.7,
+          })
+        : [];
+      const back =
+        i === 0
+          ? wire({
+              x0: tower.x - dir * tower.tip,
+              y0: y,
+              x1: tower.x - dir * 70,
+              y1: y + 7,
+              sag: 2,
+            })
+          : [];
+      return [...onward, ...back];
     });
-    for (const { rows, left, top } of placed) {
-      canvas.sprite({ rows, x: left, y: top, inks });
-    }
+    const marks = towers.map(({ rows, left, top }) => ({
+      rows,
+      x: left,
+      y: top,
+    }));
+    const inks = inksOver(canvas, stage, marks, wires);
+    paint(canvas, wires, inks["#"]);
+    for (const mark of marks) canvas.sprite({ ...mark, inks });
   },
 });
-
-const BIRD_SKY = [INK.middle, INK.horizon];
 
 const birds: PlanSubject = (random) => {
   const rows = random.pick(FLOCKS);
@@ -183,13 +243,13 @@ const birds: PlanSubject = (random) => {
   return {
     footprint: { on: "ground", width: 0, run: 0 },
     draw: (canvas, stage) => {
-      canvas.sprite({
+      const mark = {
         rows,
         x: stage.x - (widthOf(rows) >> 1),
         y: stage.surface[stage.x] - lift - rows.length,
-        inks: subjectInks(canvas, { ...stage, behind: BIRD_SKY }),
         flip: flipFor(stage),
-      });
+      };
+      canvas.sprite({ ...mark, inks: inksOver(canvas, stage, [mark]) });
     },
   };
 };
@@ -202,7 +262,6 @@ const road: PlanSubject = (random) => {
     footprint: { on: "ground", width: 8, run: 0 },
     draw: (canvas, stage) => {
       const dir = stage.x < W / 2 ? 1 : -1;
-      const inks = subjectInks(canvas, stage);
       const top = stage.surface[stage.x] + 1;
       const span = H - top;
       const surface = canvas.mix({ from: INK.horizon, to: INK.back, by: 3 });
@@ -223,15 +282,25 @@ const road: PlanSubject = (random) => {
         const y = Math.round(top + t * span) - rows.length + 1;
         return { rows, x, y };
       });
-      poles.forEach(({ x, y }, i) => {
+      const wires = poles.flatMap(({ x, y }, i) => {
         const next = poles[i + 1];
-        if (!next) return;
-        const [x0, y0, x1, y1] = [x, y, next.x, next.y];
-        wire(canvas, { x0, y0, x1, y1, sag: 0.3 + i * 0.5, ink: inks["#"] });
+        if (!next) return [];
+        return wire({
+          x0: x,
+          y0: y,
+          x1: next.x,
+          y1: next.y,
+          sag: 0.3 + i * 0.5,
+        });
       });
-      for (const { rows, x, y } of poles) {
-        canvas.sprite({ rows, x: x - (widthOf(rows) >> 1), y, inks });
-      }
+      const marks = poles.map(({ rows, x, y }) => ({
+        rows,
+        x: x - (widthOf(rows) >> 1),
+        y,
+      }));
+      const inks = inksOver(canvas, stage, marks, wires);
+      paint(canvas, wires, inks["#"]);
+      for (const mark of marks) canvas.sprite({ ...mark, inks });
     },
   };
 };

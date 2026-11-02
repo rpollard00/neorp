@@ -33,7 +33,7 @@ describe("inks", () => {
   test("a legible ink falls through to the first that reads", () => {
     const canvas = new Canvas();
     const ink = canvas.legible({
-      over: [INK.front],
+      over: [[INK.front, 1]],
       from: [INK.front, INK.sun],
       min: 2,
     });
@@ -43,7 +43,7 @@ describe("inks", () => {
   test("a legible ink takes the best when none reads", () => {
     const canvas = new Canvas();
     const ink = canvas.legible({
-      over: [INK.sun],
+      over: [[INK.sun, 1]],
       from: [INK.sun, INK.front],
       min: 99,
     });

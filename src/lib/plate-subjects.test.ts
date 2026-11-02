@@ -36,7 +36,12 @@ const drawn = ({ land, subject }: (typeof PAIRS)[number], seed: number) => {
   return { canvas, stage, before, added };
 };
 
-const SILHOUETTES: readonly string[] = ["pylons", "mast", "tree", "birds"];
+/**
+ * Below 1.3:1 two flat colours merge at 2×. The edge counts where a subject
+ * meets what is behind it above the land; its foot may sit on its own ink.
+ */
+const EDGE_CONTRAST = 1.3;
+const EDGE_FLOOR = 0.7;
 
 const rowOf = (i: number) => Math.floor(i / PLATE_WIDTH);
 
@@ -88,20 +93,25 @@ describe.each(PAIRS)("$name", (pair) => {
     }
   });
 
-  test("reads against what is behind it on every palette", () => {
-    const needed = SILHOUETTES.includes(pair.subject) ? 1.8 : 1.3;
+  test("its edge stands apart from what is behind it on every palette", () => {
     for (const palette of PALETTE_NAMES) {
       for (const seed of SEEDS.slice(0, 6)) {
-        const { canvas, before, added } = drawn(pair, seed);
+        const { canvas, stage, before, added } = drawn(pair, seed);
         const colours = resolveInks(canvas, PALETTES[palette]);
-        const shown = added.filter((i) => before[i] <= INK.horizon);
-        const reads = shown.filter(
-          (i) =>
-            contrast(colours[canvas.pixels[i]], colours[before[i]]) >= needed,
-        );
-        if (shown.length > 0) {
-          expect(reads.length / shown.length).toBeGreaterThan(0.45);
+        const mine = new Set(added);
+        let edges = 0;
+        let apart = 0;
+        for (const i of added) {
+          for (const j of [i - 1, i + 1, i - PLATE_WIDTH]) {
+            if (j < 0 || mine.has(j)) continue;
+            const row = rowOf(j);
+            if (row >= stage.surface[j % PLATE_WIDTH]) continue;
+            edges++;
+            const pair = [colours[canvas.pixels[i]], colours[before[j]]];
+            if (contrast(pair[0], pair[1]) >= EDGE_CONTRAST) apart++;
+          }
         }
+        if (edges > 0) expect(apart / edges).toBeGreaterThanOrEqual(EDGE_FLOOR);
       }
     }
   });
