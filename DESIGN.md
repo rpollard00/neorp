@@ -97,20 +97,36 @@ Rules:
   (8px wide) and the break under the article intro (8px tall, full column
   width).
 - **Plate** (`src/lib/plates.ts`, served at `/plates/<slug>.png`): a 160×60
-  pixel landscape made from a named palette and a seed. The build generates one
-  for each post. It shows at whole-pixel scales only: 5× for the article plate
-  on wide screens, 4× on desktop, 3× on small tablets, 2× on phones. The
-  breakpoints are in `src/components/Plate.astro`. Below 360px the plate
-  shrinks under 2×. A `--chrome` label bar under the plate shows the plate
+  pixel scene made from a named scene, a named palette, and a seed. The build
+  generates one for each post. It shows at whole-pixel scales only: 5× for the
+  article plate on wide screens, 4× on desktop, 3× on small tablets, 2× on
+  phones. The breakpoints are in `src/components/Plate.astro`. Below 360px the
+  plate shrinks under 2×. A `--chrome` label bar under the plate shows the plate
   number, a date or "Latest", and the palette name.
+- **Scenes** (provisional, approved from mockups on 2026-11-01; not yet accepted
+  as rendered): a plate is a land (sea, peaks, dunes, forest, mesas, lake,
+  fields), and about two thirds of the lands have one small subject (lighthouse,
+  cabin, pylons, sailboat, mast, tree, birds, road, or tent). About 1 plate in 12
+  is a strange world (ringed, moons, monolith, gate, hull, colony, or mega). This
+  keeps the worlds rare, so that they are a surprise and not the voice of the
+  site. `src/lib/scenes.ts` lists each scene and the subjects that each land
+  takes. Adding or reordering entries in `SCENE_NAMES` changes the plates of
+  posts that have no `scene:`. Land and large shapes are computed. Small subjects
+  are drawn by hand as pixel grids, because small objects need placed pixels.
+  Each subject stands on the surface that its land levels for it, on the side
+  away from the sun or moon. A subject is under 20 pixels tall. Peak shading
+  follows the light. Subject inks read against the sky of each palette: dark on a
+  light sky and pale on a dark sky. Calm is the rule: few elements and much empty
+  sky. Do not add an aurora: its edge reads as a ragged dither.
 - **Theme toggle** (`src/components/ThemeToggle.astro`): a 7×7 pixel circle
   with the right half filled, at 2px for each cell. It is the last item in the
   masthead nav. When the dark theme is on, the icon is mirrored.
   `aria-pressed` gives the state, and the accessible name is "Dark mode". The
   button stays hidden without JavaScript.
 - **Palettes**: 11 named skies. A post sets one with `plate:` in its
-  frontmatter. Without it, the slug selects a palette. The slug also seeds the
-  shape of the landscape.
+  frontmatter, and sets a scene with `scene:`. Without them, the slug selects
+  the palette and the scene. The slug also seeds the shapes in the scene. The
+  palette changes colour only, never shape.
 
 ## Composition
 

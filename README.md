@@ -15,7 +15,7 @@ short posts.
 bun post new My post title          # src/content/posts/my-post-title.md, opened in $VISUAL or $EDITOR
 bun post new My post title --folder # my-post-title/index.md, for images next to the post
 bun post list                       # every post with its state, date, and word count
-bun post plate my-post-title        # pick the plate's palette
+bun post plate my-post-title        # pick the plate's palette and scene
 bun post publish                    # pick a draft, fill in what it needs, and ship it
 bun post publish my-post-title --on 2026-10-05
 ```
@@ -24,8 +24,8 @@ A new post is a draft with only a title. `astro dev` shows it at
 `/posts/<slug>/`. Any slug argument can also be the path to the post's file,
 from the repo root or absolute (`%:p` in nvim).
 
-`bun post publish` asks for the description, tags, plate, and date (today, or
-`--on`) and writes them into the frontmatter. Then it moves the post's file out
+`bun post publish` asks for the description, tags, plate (palette and scene),
+and date (today, or `--on`) and writes them into the frontmatter. Then it moves the post's file out
 of the working copy into a new commit directly below it: `post: <title>`, or
 `post: revise <title>` for a post that was already live. A post in its own
 folder (`<slug>/index.md`) moves with the whole folder. The working copy keeps
@@ -62,6 +62,7 @@ description: One line shown in the list and in <meta>
 pubDate: 2026-09-14 # optional; see below
 tags: [demo] # optional
 plate: dusk # optional; the palette of the plate
+scene: peaks-cabin # optional; the scene of the plate
 ---
 ```
 
@@ -76,10 +77,21 @@ plate: dusk # optional; the palette of the plate
 A scheduled post goes live on the first build on or after its date, in the
 site's timezone (`SITE.timeZone` in `src/site.ts`, America/Los_Angeles).
 
-Each post has a plate: a 160×60 pixel landscape that the build draws from a
-palette and a seed. The palette names are in `src/lib/palettes.ts`. If a post
-has no `plate:`, the slug selects the palette. The slug also sets the shape of
-the landscape. Posts get numbers by date. The oldest post is 01.
+Each post has a plate: a 160×60 pixel picture that the build draws from a
+palette, a scene, and a seed. The palette names are in `src/lib/palettes.ts`,
+and the scene names are in `SCENE_NAMES` in `src/lib/scenes.ts`. A scene name is
+a land (`peaks`), a land with a subject (`peaks-cabin`), or a world (`monolith`).
+If a post has no `plate:` or no `scene:`, the slug selects it. The slug also sets
+the shapes in the scene. The palette changes colour only, never shape.
+
+Adding or reordering entries in `SCENE_NAMES` changes the plates of posts that
+have no `scene:`. To keep a plate, set `scene:` in the post.
+
+`bun post plate` shows the plate in the terminal. ←/→ or h/l change the palette,
+and ↑/↓ or k/j change the scene. It writes `plate:` or `scene:` only for a value
+you changed.
+
+Posts get numbers by date. The oldest post is 01.
 
 MDX files can import components: `import Foo from "../../components/Foo.astro"`.
 
@@ -96,8 +108,8 @@ MDX files can import components: `import Foo from "../../components/Foo.astro"`.
 
 Shared chrome (head, header, footer, tokens, base styles) is in
 `src/layouts/Layout.astro`. `src/layouts/PostLayout.astro` wraps a single post.
-List helpers live in `src/utils/posts.ts`. The plate drawing code is in
-`src/lib/plates.ts`. The site name, URL, and description and the feed path are
+List helpers live in `src/utils/posts.ts`. `src/lib/plates.ts` is the entry to
+the plate drawing code, and the `src/lib/plate-*.ts` modules draw the plates. The site name, URL, and description and the feed path are
 in `src/site.ts`. `bun post` is in `scripts/post/`.
 
 The RSS feed lists every post with its title, description, date, and tags. Feed
