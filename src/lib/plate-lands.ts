@@ -18,7 +18,6 @@ import {
 } from "./plate-canvas";
 import type { LandName } from "./scenes";
 
-/** What a subject needs from the land that it stands in. */
 export type Footprint = {
   on: "ground" | "water";
   /** Columns of level surface. */
@@ -27,7 +26,6 @@ export type Footprint = {
   run: number;
 };
 
-/** The one thing a subject knows about its land. */
 export type Stage = {
   /** The top row of the surface in each column. */
   surface: readonly number[];
@@ -35,7 +33,6 @@ export type Stage = {
   x: number;
   /** The column of the light. It is off the plate when no disc shows. */
   light: number;
-  /** The inks directly behind the subject. */
   behind: readonly Ink[];
 };
 
@@ -55,7 +52,6 @@ const SKY_BEHIND = [INK.middle, INK.horizon];
 
 const flat = (row: number) => new Array<number>(W).fill(row);
 
-/** Where a subject stands on its side of the plate. */
 const siteColumn = (random: Random, side: Side, run: number) => {
   const spot = random.below(23);
   const inset = run > 0 ? 24 + (spot >> 2) : 30 + spot;
@@ -82,7 +78,6 @@ const strata = (
   canvas.hline(x + c, x + width + Math.round(width * 0.1), y + 1, under);
 };
 
-/** A reflection as a sprite artist draws it: tapered dashes, row by row. */
 const glitter = (
   canvas: Canvas,
   { x, row, half }: { x: number; row: number; half: number },
@@ -97,7 +92,6 @@ const glitter = (
   }
 };
 
-/** Puts the light in the sky, on the side away from the site. */
 const lights = (
   canvas: Canvas,
   random: Random,
@@ -151,7 +145,6 @@ const lights = (
   };
 };
 
-/** A swell of land that lifts a subject onto the skyline. */
 const swell = (
   contour: readonly number[],
   { x, top, reach }: { x: number; top: number; reach: number },
@@ -163,7 +156,6 @@ const swell = (
     }),
   );
 
-/** Land that rises away from the site, so that a line of things recedes. */
 const receding = (
   contour: readonly number[],
   { x, toward }: { x: number; toward: Side },
@@ -253,7 +245,6 @@ const sea: PaintLand = (canvas, random, footprint) => {
   };
 };
 
-/** A flank is a run of clean slopes: 1:1 and 2:1 stairs, never a noisy walk. */
 const flank = (random: Random, drop: number) => {
   const out: number[] = [];
   let y = 0;
@@ -292,7 +283,6 @@ type Mountain = {
   base: number;
   lit: Ink;
   shade: Ink;
-  /** The side of the spine that faces the light. */
   lightSide: Side;
   snow?: { lit: Ink; shade: Ink; rows: number };
 };
@@ -402,14 +392,9 @@ type Dune = {
   lit: Ink;
   shade: Ink;
   dir: Side;
-  /** Columns of level crest. */
   level?: number;
 };
 
-/**
- * Behind the peak the sand falls away slowly. A knife-edge crest runs down from
- * the peak toward the viewer in an S, and the shadow lies between the two.
- */
 const dune = (canvas: Canvas, d: Dune) => {
   const { x: xc, y: yc, span, dir, level = 0 } = d;
   const windward = span * 4.2;
@@ -836,7 +821,6 @@ const lake: PaintLand = (canvas, random, footprint) => {
       };
 };
 
-/** The height of one hedgerow along its line. It is drawn, not computed. */
 const HEDGE = [
   "1122211112223321111222111000000111222233322111122111222211110000111223",
   "3322211112211122221111222333322111122111112221110000111222211112223332",

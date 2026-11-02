@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { pickScene, SCENE_NAMES, SCENES } from "./scenes";
 
-/** A small repeatable generator, so that the odds are measured and not luck. */
 const lcg = (seed: number) => () => {
   seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
   return seed / 2 ** 32;

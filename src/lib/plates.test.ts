@@ -37,7 +37,6 @@ const baseColours = (palette: PaletteName) => {
   );
 };
 
-/** The palette's colours, its star, and every fixed mix of two of them. */
 const allowedColours = (palette: PaletteName) => {
   const base = baseColours(palette);
   const mixes = base.flatMap((a) =>
@@ -113,7 +112,6 @@ describe("the palette changes colour only", () => {
     }
   });
 
-  /** One colour in `a` is one colour in `b`, wherever neither is a star. */
   const sameShapes = (a: PaletteName, b: PaletteName, scene: SceneName) => {
     const seed = 0xc0ffee;
     const [left, right] = [a, b].map((palette) =>

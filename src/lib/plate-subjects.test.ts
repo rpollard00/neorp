@@ -36,7 +36,6 @@ const drawn = ({ land, subject }: (typeof PAIRS)[number], seed: number) => {
   return { canvas, stage, before, added };
 };
 
-/** All body, so that a weak ink has no lit side to save it. */
 const SILHOUETTES: readonly string[] = ["pylons", "mast", "tree", "birds"];
 
 const rowOf = (i: number) => Math.floor(i / PLATE_WIDTH);

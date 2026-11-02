@@ -1,9 +1,8 @@
 import type { Sprite } from "./plate-canvas";
 
 /**
- * Small objects are drawn by hand, because they need placed pixels. The light
- * falls from the left, and a sprite flips when the light is on the right.
- * `#` is the dark body, `s` the shade, `l` the lit side, and `*` a lamp.
+ * The light falls from the left, and a sprite flips when the light is on the
+ * right. `#` is the dark body, `s` the shade, `l` the lit side, and `*` a lamp.
  */
 
 export const LIGHTHOUSES: readonly Sprite[] = [

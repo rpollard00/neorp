@@ -84,7 +84,6 @@ const encodePng = ({
   ]);
 };
 
-/** The scene and its shapes, in inks. A palette has no way in here. */
 export const composeScene = ({
   scene,
   seed,
@@ -137,7 +136,6 @@ const starPoints = (
   return placed;
 };
 
-/** The stars of a palette, on a stream of their own, in open sky only. */
 const starsFor = ({
   canvas,
   palette,

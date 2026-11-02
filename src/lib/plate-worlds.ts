@@ -24,7 +24,6 @@ const heavens = (canvas: Canvas, row: number, count = 30) => {
 
 const CLEAR_OF_HORIZON = 1.4;
 
-/** A body that would sink into a dark sky takes pale inks instead. */
 const planetInks = (canvas: Canvas) => {
   const pale = (by: number) =>
     canvas.mix({ from: INK.horizon, to: INK.sun, by });
@@ -43,7 +42,6 @@ const planetInks = (canvas: Canvas) => {
   return { face, shade };
 };
 
-/** A flat, hard plain, with a long low rise and sometimes a far bluff. */
 const plain = (
   canvas: Canvas,
   random: Random,
@@ -242,7 +240,6 @@ const gate: PaintWorld = (canvas, random) => {
   canvas.rect(x - 19, row, x + 19, row + 1, INK.front);
 };
 
-/** A half hoop on the ground, like a rib seen from a little ahead. */
 const hoop = (
   canvas: Canvas,
   {

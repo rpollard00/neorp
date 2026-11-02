@@ -27,7 +27,6 @@ type PlacedSubject = {
   draw: (canvas: Canvas, stage: Stage) => void;
 };
 
-/** A subject picks its drawing first, so the land can make room for it. */
 export type PlanSubject = (random: Random) => PlacedSubject;
 
 const widthOf = (rows: Sprite) => rows[0].length;
@@ -35,7 +34,6 @@ const widthOf = (rows: Sprite) => rows[0].length;
 const READS = 2.2;
 const GLOWS = 1.3;
 
-/** Dark on a light sky and pale on a dark one, in every palette. */
 const subjectInks = (canvas: Canvas, { behind: over }: Stage) => {
   const pale = (by: number) =>
     canvas.mix({ from: INK.horizon, to: INK.sun, by });

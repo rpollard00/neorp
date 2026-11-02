@@ -17,7 +17,6 @@ const SHOW_CURSOR = `${ESC}[?25h`;
 const KEYS = /\x1b\[[\d;]*[A-Za-z~]|\x1bO[A-Za-z]|[\s\S]/g;
 const HINT =
   "←/→ or h/l palette · ↑/↓ or k/j scene · enter to pick · esc to cancel";
-/** The palette line, the scene line, the hint, and what comes next. */
 const RESERVED_LINES = 4;
 const SIGNALS = [
   ["SIGTERM", 143],
@@ -93,7 +92,6 @@ type KeyResult = {
   outcome: "open" | "picked" | "cancelled" | "interrupted";
 };
 
-/** Applies a chunk of keys in order, up to the first key that ends the picker. */
 export const readKeys = (chunk: string, start: PlateChoice): KeyResult => {
   let choice = start;
   const palette = (by: number) => {

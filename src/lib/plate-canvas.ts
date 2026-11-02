@@ -25,7 +25,6 @@ export const INK = {
 type BaseInk = (typeof INK)[keyof typeof INK];
 export type Ink = number;
 
-/** What an ink is, without its colour. Only a palette can give the colour. */
 type InkRecipe =
   | { kind: "base"; ink: BaseInk }
   | { kind: "mix"; from: BaseInk; to: BaseInk; by: number }
@@ -79,7 +78,6 @@ const mulberry32 = (seed: number) => {
 
 export type Random = ReturnType<typeof randomStream>;
 
-/** Each purpose has its own stream, so that one cannot disturb another. */
 export const randomStream = (seed: number, purpose: number) => {
   const next = mulberry32(seed ^ purpose);
   const below = (n: number) => Math.floor(next() * n);
@@ -114,7 +112,6 @@ const BAYER_8 = bayer(8);
 export const threshold = (x: number, y: number) =>
   (BAYER_8[((y % 8) + 8) % 8][((x % 8) + 8) % 8] + 0.5) / 64;
 
-/** The same Bayer matrix stretched along x, for water and ripples. */
 export const stretched = (x: number, y: number, by: number) =>
   threshold(Math.floor(x / by), y);
 
@@ -132,14 +129,12 @@ export const forDisc = (r: number, each: (dx: number, dy: number) => void) => {
 /** Rows of text. `.` is clear, and every other character names an ink. */
 export type Sprite = readonly string[];
 
-/** A plate holds ink indices, so a pixel can only be a known flat ink. */
 export class Canvas {
   readonly pixels = new Uint8Array(W * H);
   readonly recipes: InkRecipe[] = Object.values(INK).map((ink) => ({
     kind: "base",
     ink,
   }));
-  /** How far down the sky stars may fall, and whether dark skies get them. */
   stars = { limit: 0, count: 0, darkSkies: false };
   private readonly known = new Map<string, Ink>();
 
@@ -222,7 +217,6 @@ export class Canvas {
   }
 }
 
-/** The colour of every ink of `canvas` in `palette`. */
 export const resolveInks = (
   { recipes }: Pick<Canvas, "recipes">,
   palette: Palette,
@@ -246,7 +240,6 @@ export const resolveInks = (
   return colours;
 };
 
-/** Monotone cubic through control points, so land never overshoots. */
 export const spline = (points: readonly (readonly [number, number])[]) => {
   const n = points.length;
   const d = points
@@ -275,7 +268,6 @@ export const spline = (points: readonly (readonly [number, number])[]) => {
   return out;
 };
 
-/** Rounds a contour and removes one-pixel bumps and notches. */
 export const tidy = (raw: readonly number[]) => {
   const h = raw.map(Math.round);
   for (let pass = 0; pass < 3; pass++) {
@@ -286,7 +278,6 @@ export const tidy = (raw: readonly number[]) => {
   return h;
 };
 
-/** Long, slow land: a few alternating knots, nothing like a sum of sines. */
 export const rolling = (
   random: Random,
   { base, amp, knots }: { base: number; amp: number; knots: number },
@@ -306,7 +297,6 @@ export const rolling = (
   return tidy(spline(points));
 };
 
-/** Levels a stretch of ground, easing back into the contour at both sides. */
 export const levelled = (
   contour: readonly number[],
   { x0, x1, ease }: { x0: number; x1: number; ease: number },
@@ -326,7 +316,6 @@ export const levelled = (
   return tidy(out);
 };
 
-/** The shared sky: three stops, dithered, measured to the horizon row. */
 export const sky = (canvas: Canvas, horizonRow: number) => {
   const stops = [
     [0, INK.top],

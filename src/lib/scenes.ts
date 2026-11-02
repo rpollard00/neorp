@@ -125,10 +125,6 @@ const LAND_SCENES = SCENE_NAMES.filter((name) => {
 const subjectsOf = (name: SceneName) =>
   SCENE_NAMES.filter((other) => other.startsWith(`${name}-`));
 
-/**
- * The scene a seed gets when a post sets none. Worlds are rare. Each land is
- * equally likely, and most lands have a subject.
- */
 export const pickScene = (random: () => number): SceneName => {
   const pick = <T>(items: readonly T[]) =>
     items[Math.floor(random() * items.length)];
