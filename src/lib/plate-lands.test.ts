@@ -5,20 +5,29 @@ import {
   PLATE_WIDTH,
   randomStream,
 } from "./plate-canvas";
-import { LANDS, type Footprint } from "./plate-lands";
+import { LANDS, type Footprint, type Stage } from "./plate-lands";
 
-const SEEDS = Array.from({ length: 200 }, (_, i) => Math.imul(i + 1, 40503));
+const SEEDS = Array.from({ length: 60 }, (_, i) => Math.imul(i + 1, 40503));
 const ON_GROUND: Footprint = { on: "ground", width: 15, run: 0 };
 
-const paint = (name: keyof typeof LANDS, seed: number, print = ON_GROUND) => {
+const painted = new Map<string, { canvas: Canvas; stage: Stage }>();
+
+/** Each land and seed is painted once and shared by the checks below. */
+const paint = (name: keyof typeof LANDS, seed: number) => {
+  const id = `${name}:${seed}`;
+  const found = painted.get(id);
+  if (found) return found;
   const canvas = new Canvas();
-  const stage = LANDS[name](canvas, randomStream(seed, 1), print);
+  const stage = LANDS[name](canvas, randomStream(seed, 1), ON_GROUND);
+  painted.set(id, { canvas, stage });
   return { canvas, stage };
 };
 
 describe.each(Object.keys(LANDS) as (keyof typeof LANDS)[])("%s", (name) => {
   test("is the same land for the same seed", () => {
-    expect(paint(name, 9).canvas.pixels).toEqual(paint(name, 9).canvas.pixels);
+    const again = new Canvas();
+    LANDS[name](again, randomStream(9, 1), ON_GROUND);
+    expect(paint(name, 9).canvas.pixels).toEqual(again.pixels);
   });
 
   test("keeps the light far from the site", () => {

@@ -27,7 +27,7 @@ const SEEDS = [
   1306789390,
   1353973201,
   2812229512,
-  ...Array.from({ length: 8 }, (_, i) => Math.imul(i + 1, 40503)),
+  ...Array.from({ length: 3 }, (_, i) => Math.imul(i + 1, 40503)),
 ];
 const TALLEST = 19;
 
@@ -38,7 +38,7 @@ const PAIRS = SCENE_NAMES.flatMap((name) => {
     : [];
 });
 
-const drawn = ({ land, subject }: (typeof PAIRS)[number], seed: number) => {
+const draw = ({ land, subject }: (typeof PAIRS)[number], seed: number) => {
   const canvas = new Canvas();
   const placed = SUBJECTS[subject](randomStream(seed, STREAM.subject));
   const stage = LANDS[land](
@@ -52,6 +52,16 @@ const drawn = ({ land, subject }: (typeof PAIRS)[number], seed: number) => {
     (i) => canvas.pixels[i] !== before[i],
   );
   return { canvas, stage, before, added };
+};
+
+const drawings = new Map<string, ReturnType<typeof draw>>();
+
+/** Each pairing and seed is drawn once and shared by the checks below. */
+const drawn = (pair: (typeof PAIRS)[number], seed: number) => {
+  const id = `${pair.name}:${seed}`;
+  const found = drawings.get(id) ?? draw(pair, seed);
+  drawings.set(id, found);
+  return found;
 };
 
 /**

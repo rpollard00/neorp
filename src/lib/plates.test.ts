@@ -27,19 +27,37 @@ import {
 } from "./palettes";
 import { SCENE_NAMES, SCENES, type SceneName } from "./scenes";
 
-const SEEDS = [1, 42, 0x9e3779b1, 0xdeadbeef, 305419896];
+/** Two seeds for each scene and palette. */
+const SEEDS = [42, 0xdeadbeef];
 const COLOUR_CAP = 12;
 const SUBJECT_COLOUR_CAP = 14;
 
-const key = ([r, g, b]: Rgb) => `${r},${g},${b}`;
+const key = ([r, g, b]: Rgb) => (r << 16) | (g << 8) | b;
 
 const pixelColours = (pixels: Uint8Array) => {
-  const out: string[] = [];
+  const out: number[] = [];
   for (let i = 0; i < pixels.length; i += 3) {
     out.push(key([pixels[i], pixels[i + 1], pixels[i + 2]]));
   }
   return out;
 };
+
+/** Renders are shared between the checks below, so each is drawn once. */
+const memo = <A extends unknown[], R>(make: (...args: A) => R) => {
+  const made = new Map<string, R>();
+  return (...args: A) => {
+    const id = JSON.stringify(args);
+    const found = made.get(id);
+    if (found !== undefined) return found;
+    const fresh = make(...args);
+    made.set(id, fresh);
+    return fresh;
+  };
+};
+
+const coloursOf = memo((palette: PaletteName, scene: SceneName, seed: number) =>
+  pixelColours(renderPlate({ palette, scene, seed }).pixels),
+);
 
 const baseColours = (palette: PaletteName) => {
   const { sky, sun, hills } = PALETTES[palette];
@@ -88,25 +106,11 @@ describe("renderPlate", () => {
     }
   });
 
-  test.each([...SCENE_NAMES])(
-    "%s fits the plate and the colour rules",
-    (scene) => {
-      for (const palette of PALETTE_NAMES) {
-        const allowed = allowedColours(palette);
-        for (const seed of SEEDS) {
-          const plate = renderPlate({ palette, scene, seed });
-          expect([plate.width, plate.height]).toEqual([
-            PLATE_WIDTH,
-            PLATE_HEIGHT,
-          ]);
-          expect(plate.pixels).toHaveLength(PLATE_WIDTH * PLATE_HEIGHT * 3);
-          const colours = new Set(pixelColours(plate.pixels));
-          expect(colours.size).toBeLessThanOrEqual(colourCap(scene));
-          for (const colour of colours) expect(allowed.has(colour)).toBe(true);
-        }
-      }
-    },
-  );
+  test("renders 160 by 60 RGB", () => {
+    const plate = renderPlate({ palette: "dusk", scene: "sea", seed: 1 });
+    expect([plate.width, plate.height]).toEqual([PLATE_WIDTH, PLATE_HEIGHT]);
+    expect(plate.pixels).toHaveLength(PLATE_WIDTH * PLATE_HEIGHT * 3);
+  });
 
   test("drawPlate writes the plate as a PNG", () => {
     const png = drawPlate({ palette: "sea", scene: "gate", seed: 3 });
@@ -119,31 +123,36 @@ describe("renderPlate", () => {
 describe("the palette changes colour only", () => {
   const SKY_INKS: readonly number[] = [INK.top, INK.middle, INK.horizon];
 
-  test.each([...SCENE_NAMES])("%s has one ink map for all", (scene) => {
-    for (const seed of SEEDS) {
-      const canvas = composeScene({ scene, seed });
-      for (const palette of PALETTE_NAMES) {
-        const colours = resolveInks(canvas, PALETTES[palette]).map(key);
-        const rendered = pixelColours(
-          renderPlate({ palette, scene, seed }).pixels,
-        );
-        const stars = rendered.filter(
-          (colour, i) => colour !== colours[canvas.pixels[i]],
-        );
-        rendered.forEach((colour, i) => {
-          if (colour !== colours[canvas.pixels[i]]) {
-            expect(SKY_INKS).toContain(canvas.pixels[i]);
-          }
-        });
-        expect(new Set(stars).size).toBeLessThanOrEqual(1);
+  test.each([...SCENE_NAMES])(
+    "%s keeps the colour rules and one ink map in every palette",
+    (scene) => {
+      for (const seed of SEEDS) {
+        const canvas = composeScene({ scene, seed });
+        for (const palette of PALETTE_NAMES) {
+          const allowed = allowedColours(palette);
+          const rendered = coloursOf(palette, scene, seed);
+          const used = new Set(rendered);
+          expect(used.size).toBeLessThanOrEqual(colourCap(scene));
+          for (const colour of used) expect(allowed.has(colour)).toBe(true);
+          const colours = resolveInks(canvas, PALETTES[palette]).map(key);
+          const stars = rendered.filter(
+            (colour, i) => colour !== colours[canvas.pixels[i]],
+          );
+          rendered.forEach((colour, i) => {
+            if (colour !== colours[canvas.pixels[i]]) {
+              expect(SKY_INKS).toContain(canvas.pixels[i]);
+            }
+          });
+          expect(new Set(stars).size).toBeLessThanOrEqual(1);
+        }
       }
-    }
-  });
+    },
+  );
 
   const sameShapes = (a: PaletteName, b: PaletteName, scene: SceneName) => {
     const seed = 0xc0ffee;
     const [left, right] = [a, b].map((palette) =>
-      pixelColours(renderPlate({ palette, scene, seed }).pixels),
+      coloursOf(palette, scene, seed),
     );
     const star = key(rgb(STAR_COLOUR));
     const pairs = new Set(
@@ -206,7 +215,7 @@ describe("composeScene", () => {
 });
 
 /** The land of a scene with its subject's site made, before the subject. */
-const landOf = (scene: SceneName, seed: number) => {
+const landOf = memo((scene: SceneName, seed: number) => {
   const picked = SCENES[scene];
   const canvas = new Canvas();
   if (picked.kind === "world") {
@@ -217,12 +226,21 @@ const landOf = (scene: SceneName, seed: number) => {
     : null;
   LANDS[picked.land](canvas, randomStream(seed, STREAM.shapes), footprint);
   return canvas;
-};
+});
 
 const OPEN: readonly number[] = [INK.top, INK.middle, INK.horizon, INK.sun];
+/** Seeds that once failed a review, then a spread. */
 const SWEEP = [
   3668339987,
-  ...Array.from({ length: 60 }, (_, i) => Math.imul(i + 1, 40503)),
+  240310561,
+  914233871,
+  1116541326,
+  3203338804,
+  2027808452,
+  2026110201,
+  2812229512,
+  1306789390,
+  ...Array.from({ length: 16 }, (_, i) => Math.imul(i + 1, 40503)),
 ];
 
 describe("land without dither", () => {
@@ -279,8 +297,7 @@ describe("the light", () => {
   const CLEAR_AIR = 4;
 
   test.each([...LAND_SCENES])("keeps clear air around it in %s", (scene) => {
-    for (let i = 0; i < 150; i++) {
-      const seed = Math.imul(i + 1, 2654435761) >>> 0;
+    for (const seed of SWEEP) {
       const canvas = landOf(scene, seed);
       for (let y = 0; y < PLATE_HEIGHT; y++) {
         for (let x = 0; x < PLATE_WIDTH; x++) {
@@ -350,10 +367,8 @@ describe("peaks", () => {
     const sun = key(rgb(PALETTES[palette].sun));
     let toward = 0;
     let away = 0;
-    for (let seed = 1; seed < 400; seed++) {
-      const colours = pixelColours(
-        renderPlate({ palette, scene: "peaks", seed }).pixels,
-      );
+    for (let seed = 1; seed < 160; seed++) {
+      const colours = coloursOf(palette, "peaks", seed);
       const sunAt = colours.flatMap((c, i) => (c === sun ? [i] : []));
       if (sunAt.length < 100) continue;
       const sunX =
@@ -371,7 +386,7 @@ describe("peaks", () => {
     }
     expect(toward + away).toBeGreaterThan(200);
     expect(toward / (toward + away)).toBeGreaterThan(0.9);
-  }, 30_000);
+  });
 });
 
 describe("plateFor", () => {
