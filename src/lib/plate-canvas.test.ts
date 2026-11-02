@@ -9,7 +9,7 @@ import {
   resolveInks,
   rgb,
   rolling,
-  tidy,
+  pixelContour,
 } from "./plate-canvas";
 import { PALETTES } from "./palettes";
 
@@ -87,7 +87,7 @@ describe("random streams", () => {
 
 describe("contours", () => {
   test("have no one-pixel bump or notch", () => {
-    const contour = tidy(
+    const contour = pixelContour(
       rolling(randomStream(11, 3), { base: 40, amp: 4, knots: 4 }),
     );
     for (let x = 1; x < PLATE_WIDTH - 1; x++) {

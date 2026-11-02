@@ -122,12 +122,12 @@ const starPoints = (
   canvas: Canvas,
   random: Random,
   count: number,
-  limit: number,
+  lastRow: number,
 ) => {
   const placed: (readonly [number, number])[] = [];
   for (let tries = 0; placed.length < count && tries < 2000; tries++) {
     const x = random.below(PLATE_WIDTH);
-    const y = random.below(limit);
+    const y = random.below(lastRow);
     const apart = placed.every(
       ([a, b]) => Math.abs(a - x) + Math.abs(b - y) >= 7,
     );
@@ -148,17 +148,22 @@ const starsFor = ({
   seed: number;
 }) => {
   const random = randomStream(seed, STREAM.stars);
-  const { limit, count, darkSkies } = canvas.stars;
+  const { lastRow, count, alsoOnDarkSky } = canvas.stars;
   if (PALETTES[palette].stars) {
     return {
       colour: rgb(STAR_COLOUR),
-      points: starPoints(canvas, random, count, limit),
+      points: starPoints(canvas, random, count, lastRow),
     };
   }
-  if (darkSkies && luminance(colours[INK.top]) < DARK_SKY) {
+  if (alsoOnDarkSky && luminance(colours[INK.top]) < DARK_SKY) {
     return {
       colour: mixColours(colours[INK.middle], colours[INK.sun], 5),
-      points: starPoints(canvas, random, count >> 1, Math.round(limit * 0.56)),
+      points: starPoints(
+        canvas,
+        random,
+        count >> 1,
+        Math.round(lastRow * 0.56),
+      ),
     };
   }
   return { colour: rgb(STAR_COLOUR), points: [] };

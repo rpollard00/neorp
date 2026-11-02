@@ -139,7 +139,7 @@ export class Canvas {
     kind: "base",
     ink,
   }));
-  stars = { limit: 0, count: 0, darkSkies: false };
+  stars = { lastRow: 0, count: 0, alsoOnDarkSky: false };
   private readonly known = new Map<string, Ink>();
 
   private add(recipe: InkRecipe) {
@@ -328,7 +328,7 @@ export const spline = (points: readonly (readonly [number, number])[]) => {
   return out;
 };
 
-export const tidy = (raw: readonly number[]) => {
+export const pixelContour = (raw: readonly number[]) => {
   const h = raw.map(Math.round);
   for (let pass = 0; pass < 3; pass++) {
     for (let x = 1; x < W - 1; x++) {
@@ -354,7 +354,7 @@ export const rolling = (
     ]);
     up = !up;
   }
-  return tidy(spline(points));
+  return pixelContour(spline(points));
 };
 
 export const levelled = (
@@ -373,7 +373,7 @@ export const levelled = (
       out[x] = level + (contour[x] - level) * (t * t * (3 - 2 * t));
     }
   }
-  return tidy(out);
+  return pixelContour(out);
 };
 
 export const sky = (canvas: Canvas, horizonRow: number) => {

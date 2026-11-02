@@ -10,7 +10,7 @@ import {
   spline,
   stretched,
   threshold,
-  tidy,
+  pixelContour,
   type Canvas,
   type Ink,
   type Random,
@@ -96,16 +96,16 @@ const lights = (
   {
     row,
     kinds,
-    side,
-  }: { row: number; kinds: readonly LightKind[]; side: Side },
+    siteSide,
+  }: { row: number; kinds: readonly LightKind[]; siteSide: Side },
 ) => {
   const kind = random.pick(kinds);
-  const x = side < 0 ? random.range(106, 130) : random.range(30, 54);
+  const x = siteSide < 0 ? random.range(106, 130) : random.range(30, 54);
   const shows = kind === "sun" || kind === "low" || kind === "moon";
   canvas.stars = {
-    limit: Math.round(row * 0.7),
+    lastRow: Math.round(row * 0.7),
     count: 34,
-    darkSkies: false,
+    alsoOnDarkSky: false,
   };
   if (kind === "sun") {
     canvas.disc({ x, y: Math.round(row * 0.5), r: 7, ink: INK.sun });
@@ -126,14 +126,15 @@ const lights = (
     const wide = random.range(38, 56);
     const narrow = random.range(24, 34);
     strata(canvas, random, {
-      x: side > 0 ? random.range(14, 40) : W - wide - random.range(14, 40),
+      x: siteSide > 0 ? random.range(14, 40) : W - wide - random.range(14, 40),
       y: random.range(9, 13),
       width: wide,
       ink,
       under,
     });
     strata(canvas, random, {
-      x: side > 0 ? random.range(66, 74) : W - narrow - random.range(66, 74),
+      x:
+        siteSide > 0 ? random.range(66, 74) : W - narrow - random.range(66, 74),
       y: random.range(18, 23),
       width: narrow,
       ink,
@@ -143,7 +144,7 @@ const lights = (
   return {
     kind,
     shows,
-    x: shows ? x : side < 0 ? OFF_PLATE : -OFF_PLATE,
+    x: shows ? x : siteSide < 0 ? OFF_PLATE : -OFF_PLATE,
   };
 };
 
@@ -151,7 +152,7 @@ const swell = (
   contour: readonly number[],
   { x, top, reach }: { x: number; top: number; reach: number },
 ) =>
-  tidy(
+  pixelContour(
     contour.map((v, i) => {
       const d = (i - x) / reach;
       return v + (top - v) * Math.exp(-d * d);
@@ -187,7 +188,7 @@ const sea: PaintLand = (canvas, random, footprint) => {
   const light = lights(canvas, random, {
     row,
     kinds: ["low", "low", "sun", "moon", "clouds"],
-    side,
+    siteSide: side,
   });
   paintWater(canvas, row);
   if (light.shows) {
@@ -208,7 +209,7 @@ const sea: PaintLand = (canvas, random, footprint) => {
     ]);
     const x = side < 0 ? random.range(18, 30) : random.range(129, 141);
     const headland = levelSite(
-      tidy(rise.map((_, i) => rise[side < 0 ? i : W - 1 - i])),
+      pixelContour(rise.map((_, i) => rise[side < 0 ? i : W - 1 - i])),
       { x, width: footprint.width },
     );
     canvas.fillBelow(headland, INK.front);
@@ -222,7 +223,7 @@ const sea: PaintLand = (canvas, random, footprint) => {
     [open ? 140 : 100, 53],
     [180, open ? 46 : 64],
   ]);
-  const shore = tidy(spit.map((v, x) => (open ? spit[W - 1 - x] : v)));
+  const shore = pixelContour(spit.map((v, x) => (open ? spit[W - 1 - x] : v)));
   const foam = canvas.mix({ from: INK.horizon, to: INK.back, by: 2 });
   for (let x = 0; x < W; x++) {
     if (shore[x] < H) canvas.set(x, shore[x] - 1, foam);
@@ -320,7 +321,7 @@ const peaks: PaintLand = (canvas, random, footprint) => {
   const light = lights(canvas, random, {
     row: 36,
     kinds: ["sun", "moon", "clouds", "bare", "bare"],
-    side,
+    siteSide: side,
   });
   const faces = (peak: number): Side => (light.x < peak ? -1 : 1);
   const far = canvas.mix({ from: INK.horizon, to: INK.back, by: 3 });
@@ -381,18 +382,18 @@ type Dune = {
   lit: Ink;
   shade: Ink;
   dir: Side;
-  level?: number;
+  crestWidth?: number;
 };
 
 const dune = (canvas: Canvas, d: Dune) => {
-  const { x: xc, y: yc, span, dir, level = 0 } = d;
+  const { x: xc, y: yc, span, dir, crestWidth = 0 } = d;
   const windward = span * 4.2;
   const away = span * 7;
   const crestRun = span * 3.6;
   const crestDrop = span * 1.25;
   const along = (x: number) => {
     const dx = (x - xc) * dir;
-    return Math.sign(dx) * Math.max(0, Math.abs(dx) - (level >> 1));
+    return Math.sign(dx) * Math.max(0, Math.abs(dx) - (crestWidth >> 1));
   };
   const h = new Array<number>(W);
   for (let x = 0; x < W; x++) {
@@ -422,7 +423,7 @@ const dunes: PaintLand = (canvas, random, footprint) => {
   const light = lights(canvas, random, {
     row: 34,
     kinds: ["low", "sun", "moon", "bare"],
-    side,
+    siteSide: side,
   });
   const dir: Side = light.x < W / 2 ? 1 : -1;
   const a = random.range(0, 34);
@@ -473,7 +474,7 @@ const dunes: PaintLand = (canvas, random, footprint) => {
         lit: INK.back,
         shade: nearShade,
         dir,
-        level: footprint.width + 4,
+        crestWidth: footprint.width + 4,
       })
     : flat(50);
   canvas.clearSpecks({ keep: SKY_AND_LIGHT });
@@ -507,7 +508,7 @@ const forest: PaintLand = (canvas, random, footprint) => {
   const light = lights(canvas, random, {
     row: 34,
     kinds: ["moon", "moon", "low", "sun", "bare"],
-    side,
+    siteSide: side,
   });
   const mist = canvas.mix({ from: INK.horizon, to: INK.back, by: 2 });
   const far = canvas.mix({ from: INK.horizon, to: INK.back, by: 5 });
@@ -540,7 +541,7 @@ const forest: PaintLand = (canvas, random, footprint) => {
     });
   }
 
-  const low = tidy(
+  const low = pixelContour(
     spline([
       [-10, 56],
       [80, 58],
@@ -624,7 +625,7 @@ const mesas: PaintLand = (canvas, random, footprint) => {
   const light = lights(canvas, random, {
     row: 36,
     kinds: ["sun", "sun", "moon", "bare"],
-    side,
+    siteSide: side,
   });
   const shadeLeft = light.x > W / 2;
   const floor = 49;
@@ -696,7 +697,7 @@ const mesas: PaintLand = (canvas, random, footprint) => {
     }
   }
   canvas.fillBelow(
-    tidy(
+    pixelContour(
       spline([
         [-10, 59],
         [50, 56],
@@ -716,7 +717,7 @@ const lake: PaintLand = (canvas, random, footprint) => {
   const light = lights(canvas, random, {
     row: row - 8,
     kinds: ["low", "sun", "moon", "clouds", "bare"],
-    side,
+    siteSide: side,
   });
   const far = canvas.mix({ from: INK.horizon, to: INK.back, by: 4 });
   // A boat sails the open water, and anything else stands on the hill.
@@ -724,7 +725,7 @@ const lake: PaintLand = (canvas, random, footprint) => {
   const back = rolling(random, { base: row - 6, amp: 4, knots: 4 });
   // A hill that carries a subject stays low, so the subject meets a lit sky.
   const crest = footprint?.on === "ground" ? 10 : 15;
-  const hill = tidy(
+  const hill = pixelContour(
     spline(
       onLeft
         ? [
@@ -777,7 +778,7 @@ const lake: PaintLand = (canvas, random, footprint) => {
     canvas.hline(x, x + random.range(6, 14), y, ink);
   }
   canvas.fillBelow(
-    tidy(
+    pixelContour(
       spline(
         onLeft
           ? [
@@ -809,7 +810,7 @@ const lake: PaintLand = (canvas, random, footprint) => {
       };
 };
 
-const HEDGE = [
+const HEDGE_HEIGHTS = [
   "1122211112223321111222111000000111222233322111122111222211110000111223",
   "3322211112211122221111222333322111122111112221110000111222211112223332",
   "2211122111122221111222332211100011122221",
@@ -826,8 +827,10 @@ const hedgerow = (
   random: Random,
   { line, ink }: { line: readonly number[]; ink: Ink },
 ) => {
-  const start = random.below(HEDGE.length - W);
-  const top = tidy(line.map((y, x) => y - Number(HEDGE[start + x])));
+  const start = random.below(HEDGE_HEIGHTS.length - W);
+  const top = pixelContour(
+    line.map((y, x) => y - Number(HEDGE_HEIGHTS[start + x])),
+  );
   for (let x = 0; x < W; x++) canvas.vline(x, top[x], line[x], ink);
   let x = random.range(8, 40);
   const first = random.below(HEDGE_TREES.length);
@@ -848,7 +851,7 @@ const fields: PaintLand = (canvas, random, footprint) => {
   const x = siteColumn(random, side, footprint?.run ?? 0);
   const row = random.range(37, 40);
   sky(canvas, row);
-  canvas.stars = { limit: 18, count: 26, darkSkies: false };
+  canvas.stars = { lastRow: 18, count: 26, alsoOnDarkSky: false };
   const bright = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });
   const far = canvas.mix({ from: INK.horizon, to: INK.back, by: 4 });
   canvas.fillBelow(rolling(random, { base: row - 3, amp: 2, knots: 3 }), far);

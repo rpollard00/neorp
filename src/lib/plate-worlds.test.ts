@@ -20,7 +20,7 @@ describe.each(Object.keys(WORLDS) as (keyof typeof WORLDS)[])("%s", (name) => {
       const canvas = paint(name, seed);
       expect(canvas.pixels.subarray(0, 160).includes(INK.top)).toBe(true);
       expect([INK.back, INK.front]).toContain(canvas.get(80, 59) as 4 | 5);
-      expect(canvas.stars.darkSkies).toBe(true);
+      expect(canvas.stars.alsoOnDarkSky).toBe(true);
     }
   });
 });

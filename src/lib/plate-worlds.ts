@@ -8,7 +8,7 @@ import {
   sky,
   spline,
   threshold,
-  tidy,
+  pixelContour,
   type Canvas,
   type Ink,
   type Random,
@@ -20,9 +20,9 @@ export type PaintWorld = (canvas: Canvas, random: Random) => void;
 const heavens = (canvas: Canvas, row: number, count = 30) => {
   sky(canvas, row);
   canvas.stars = {
-    limit: Math.round(row * 0.75),
+    lastRow: Math.round(row * 0.75),
     count,
-    darkSkies: true,
+    alsoOnDarkSky: true,
   };
 };
 
@@ -68,7 +68,7 @@ const plain = (
     }
   }
   const a = random.range(-10, 60);
-  const near = tidy(
+  const near = pixelContour(
     spline([
       [-20, row + 11],
       [a + 20, row + 9],
@@ -311,7 +311,7 @@ const hull: PaintWorld = (canvas, random) => {
     canvas.vline(nose + dx, seam - 4, seam - 1, seamInk);
   }
   canvas.fillBelow(
-    tidy(
+    pixelContour(
       spline([
         [-20, row + 7],
         [40, row + 6],
