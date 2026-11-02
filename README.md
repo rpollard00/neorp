@@ -82,7 +82,8 @@ palette, a scene, and a seed. The palette names are in `src/lib/palettes.ts`,
 and the scene names are in `SCENE_NAMES` in `src/lib/scenes.ts`. A scene name is
 a land (`peaks`), a land with a subject (`peaks-cabin`), or a world (`monolith`).
 If a post has no `plate:` or no `scene:`, the slug selects it. The slug also sets
-the shapes in the scene. The palette changes colour only, never shape.
+the shapes in the scene. The palette never changes the shape of the land, the
+subject, or the world. Stars show only in some palettes.
 
 Adding or reordering entries in `SCENE_NAMES` changes the plates of posts that
 have no `scene:`. To keep a plate, set `scene:` in the post.

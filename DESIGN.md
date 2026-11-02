@@ -115,8 +115,9 @@ Rules:
   are drawn by hand as pixel grids, because small objects need placed pixels.
   Each subject stands on the surface that its land levels for it, on the side
   away from the sun or moon. A subject is under 20 pixels tall. Peak shading
-  follows the light. Subject inks read against the sky of each palette: dark on a
-  light sky and pale on a dark sky. Calm is the rule: few elements and much empty
+  follows the light. Subject inks are chosen against what is behind the
+  subject on the canvas, so that it reads in every palette: dark on a light
+  ground and pale on a dark one. Calm is the rule: few elements and much empty
   sky. Do not add an aurora: its edge reads as a ragged dither.
 - **Theme toggle** (`src/components/ThemeToggle.astro`): a 7×7 pixel circle
   with the right half filled, at 2px for each cell. It is the last item in the
@@ -126,7 +127,8 @@ Rules:
 - **Palettes**: 11 named skies. A post sets one with `plate:` in its
   frontmatter, and sets a scene with `scene:`. Without them, the slug selects
   the palette and the scene. The slug also seeds the shapes in the scene. The
-  palette changes colour only, never shape.
+  palette never changes the shape of the land, the subject, or the world. Stars
+  show only in some palettes.
 
 ## Composition
 
