@@ -220,7 +220,10 @@ const landOf = (scene: SceneName, seed: number) => {
 };
 
 const OPEN: readonly number[] = [INK.top, INK.middle, INK.horizon, INK.sun];
-const SWEEP = Array.from({ length: 60 }, (_, i) => Math.imul(i + 1, 40503));
+const SWEEP = [
+  3668339987,
+  ...Array.from({ length: 60 }, (_, i) => Math.imul(i + 1, 40503)),
+];
 
 describe("land without dither", () => {
   /** Where every shape is flat colour, nothing clips down to a speck. */
@@ -231,7 +234,11 @@ describe("land without dither", () => {
       : ["peaks", "dunes", "fields"].includes(picked.land);
   });
 
-  test.each([...FLAT])("%s has no speck of one or two pixels", (scene) => {
+  /** Dunes overlap, so a clipped shadow may not even leave a thin sliver. */
+  const longest = (scene: SceneName) => (scene.startsWith("dunes") ? 12 : 2);
+
+  test.each([...FLAT])("%s has no speck or clipped sliver", (scene) => {
+    const limit = longest(scene);
     for (const seed of SWEEP) {
       const canvas = landOf(scene, seed);
       const specks: string[] = [];
@@ -240,7 +247,7 @@ describe("land without dither", () => {
           const ink = canvas.get(x, y);
           if (OPEN.includes(ink)) continue;
           const piece = [[x, y]];
-          for (let i = 0; i < piece.length && piece.length <= 2; i++) {
+          for (let i = 0; i < piece.length && piece.length <= limit; i++) {
             const [px, py] = piece[i];
             for (let dy = -1; dy <= 1; dy++) {
               for (let dx = -1; dx <= 1; dx++) {
@@ -253,7 +260,11 @@ describe("land without dither", () => {
               }
             }
           }
-          if (piece.length <= 2) specks.push(`${seed}@${x},${y}`);
+          const thin =
+            new Set(piece.map(([, py]) => py)).size === 1 ||
+            new Set(piece.map(([px]) => px)).size === 1;
+          const speck = piece.length <= 2 || (piece.length <= limit && thin);
+          if (speck) specks.push(`${seed}@${x},${y}`);
         }
       }
       expect(specks).toEqual([]);
@@ -289,6 +300,40 @@ describe("the light", () => {
                   `${scene} ${seed}: land at ${x + dx},${y + dy}`,
                 );
               }
+            }
+          }
+        }
+      }
+    }
+  });
+});
+describe("a cloud", () => {
+  const CLOUDED = SCENE_NAMES.filter((scene) => {
+    const picked = SCENES[scene];
+    return picked.kind === "land" && picked.land !== "sea";
+  });
+
+  test.each([...CLOUDED])("keeps clear air under it in %s", (scene) => {
+    for (const seed of SWEEP) {
+      const canvas = landOf(scene, seed);
+      const cloud = canvas.recipes.findIndex(
+        (r) =>
+          r.kind === "mix" &&
+          r.from === INK.horizon &&
+          r.to === INK.sun &&
+          r.by === 4,
+      );
+      if (cloud < 0) continue;
+      for (let y = 0; y < PLATE_HEIGHT; y++) {
+        for (let x = 0; x < PLATE_WIDTH; x++) {
+          if (canvas.get(x, y) !== cloud || canvas.get(x, y + 1) === cloud) {
+            continue;
+          }
+          // The row under a cloud's lowest strip is its shadow strip.
+          for (let dy = 2; dy <= 4; dy++) {
+            const ink = canvas.get(x, y + dy);
+            if (ink > INK.horizon && ink !== cloud) {
+              throw new Error(`${scene} ${seed}: land under ${x},${y}`);
             }
           }
         }

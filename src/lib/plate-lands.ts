@@ -197,6 +197,28 @@ const lights = (
 
 type Light = ReturnType<typeof lights>;
 
+/** A cloud hangs as low as planned, but only in clear air, or not at all. */
+const hangCloud = (
+  canvas: Canvas,
+  { cloud: planned, ink, under }: { cloud: Cloud; ink: Ink; under: Ink },
+) => {
+  for (let y = planned.y; y >= 3; y--) {
+    const cloud = { ...planned, y };
+    const cells = cloudStrips(cloud).flatMap(([x0, x1, row]) =>
+      Array.from({ length: x1 - x0 + 1 }, (_, i): Cell => [x0 + i, row]),
+    );
+    if (
+      isClearAir(
+        canvas,
+        cells.filter(([cx]) => cx >= 0 && cx < W),
+      )
+    ) {
+      strata(canvas, { cloud, ink, under });
+      return;
+    }
+  }
+};
+
 /** As low as planned, and as near its column, as clear air allows. */
 const findClearSpot = (
   canvas: Canvas,
@@ -231,24 +253,7 @@ const showLight = (canvas: Canvas, { kind, disc, clouds }: Light) => {
   }
   const ink = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });
   const under = canvas.mix({ from: INK.horizon, to: INK.back, by: 4 });
-  for (const planned of clouds) {
-    for (let y = planned.y; y >= 3; y--) {
-      const cloud = { ...planned, y };
-      const cells = cloudStrips(cloud).flatMap(([x0, x1, row]) =>
-        Array.from({ length: x1 - x0 + 1 }, (_, i): Cell => [x0 + i, row]),
-      );
-      if (
-        !isClearAir(
-          canvas,
-          cells.filter(([cx]) => cx >= 0 && cx < W),
-        )
-      ) {
-        continue;
-      }
-      strata(canvas, { cloud, ink, under });
-      break;
-    }
-  }
+  for (const cloud of clouds) hangCloud(canvas, { cloud, ink, under });
 };
 
 const swell = (
@@ -588,7 +593,7 @@ const dunes: PaintLand = (canvas, random, footprint) => {
         crestWidth: footprint.width + 4,
       })
     : flat(50);
-  canvas.clearSpecks({ keep: SKY_AND_LIGHT });
+  canvas.clearSpecks({ keep: SKY_AND_LIGHT, slivers: 12 });
   showLight(canvas, light);
   return { surface, x, light: light.x };
 };
@@ -703,7 +708,11 @@ type Mesa = {
 const MESA_FLARE = [0, 1, 1, 2, 2, 2, 3, 3, 5, 7, 10];
 
 const mesa = (canvas: Canvas, random: Random, m: Mesa) => {
-  const { x0, x1, top, floor } = m;
+  const { top, floor } = m;
+  // A mesa that nearly meets the plate's edge runs past it, so no sliver of
+  // sky stays between them.
+  const x0 = m.x0 < 3 ? -4 : m.x0;
+  const x1 = m.x1 > W - 4 ? W + 3 : m.x1;
   const span = floor - top;
   const flareAt = (row: number, scale: number) => {
     const t = (row / span) * (MESA_FLARE.length - 1);
@@ -981,7 +990,7 @@ const fields: PaintLand = (canvas, random, footprint) => {
   }: Record<"x" | "y" | "width", number>) => {
     const to = from + Math.round(width * 1.1);
     if (clear && from <= clear[1] && to >= clear[0]) return;
-    strata(canvas, {
+    hangCloud(canvas, {
       cloud: cloudShape(random, { x: from, y, width }),
       ink: bright,
       under: far,

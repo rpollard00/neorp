@@ -204,17 +204,21 @@ export class Canvas {
   clearSpecks({
     rows: [from, to] = [0, H],
     keep,
+    slivers = 0,
   }: {
     rows?: readonly [number, number];
     keep: readonly Ink[];
+    /** Also clears pieces one pixel thick, up to this long. */
+    slivers?: number;
   }) {
+    const longest = Math.max(SPECK, slivers);
     const inside = (x: number, y: number) => x >= 0 && x < W && y >= 0 && y < H;
     for (let y = from; y < to; y++) {
       for (let x = 0; x < W; x++) {
         const ink = this.get(x, y);
         if (keep.includes(ink)) continue;
         const speck: [number, number][] = [[x, y]];
-        for (let i = 0; i < speck.length && speck.length <= SPECK; i++) {
+        for (let i = 0; i < speck.length && speck.length <= longest; i++) {
           const [cx, cy] = speck[i];
           for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
@@ -225,7 +229,11 @@ export class Canvas {
             }
           }
         }
-        if (speck.length > SPECK) continue;
+        if (speck.length > longest) continue;
+        const thin =
+          new Set(speck.map(([, sy]) => sy)).size === 1 ||
+          new Set(speck.map(([sx]) => sx)).size === 1;
+        if (speck.length > SPECK && !thin) continue;
         const around = speck
           .flatMap(([sx, sy]) => [
             [sx - 1, sy],

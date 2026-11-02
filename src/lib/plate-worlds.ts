@@ -9,6 +9,7 @@ import {
   spline,
   threshold,
   pixelContour,
+  type Backdrop,
   type Canvas,
   type Ink,
   type Random,
@@ -28,14 +29,30 @@ const heavens = (canvas: Canvas, row: number, count = 30) => {
 
 const CLEAR_OF_HORIZON = 1.4;
 
-const planetInks = (canvas: Canvas) => {
+/** The share of each sky ink in a box of the canvas. */
+const skyIn = (
+  canvas: Canvas,
+  { x0, x1, y0, y1 }: Record<"x0" | "x1" | "y0" | "y1", number>,
+): Backdrop => {
+  const counts = new Map<Ink, number>();
+  for (let y = Math.max(0, y0); y <= y1; y++) {
+    for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) {
+      const ink = canvas.get(x, y);
+      counts.set(ink, (counts.get(ink) ?? 0) + 1);
+    }
+  }
+  const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
+  return [...counts].map(([ink, n]) => [ink, n / total]);
+};
+
+const planetInks = (canvas: Canvas, over: Backdrop = [[INK.horizon, 1]]) => {
   const pale = (by: number) =>
     canvas.mix({ from: INK.horizon, to: INK.sun, by });
   const hill = (by: number) =>
     canvas.mix({ from: INK.back, to: INK.horizon, by });
   const face = canvas.legible({
-    over: [[INK.horizon, 1]],
-    from: [hill(5), pale(3)],
+    over,
+    from: [hill(5), pale(3), hill(2)],
     min: CLEAR_OF_HORIZON,
   });
   const shade = canvas.legible({
@@ -115,7 +132,13 @@ const ringed: PaintWorld = (canvas, random) => {
   const x = left ? random.range(44, 62) : random.range(98, 116);
   const r = random.range(15, 18);
   const y = row - random.range(4, 8);
-  const { face: lit, shade: band } = planetInks(canvas);
+  const behind = skyIn(canvas, {
+    x0: x - Math.round(r * 1.85),
+    x1: x + Math.round(r * 1.85),
+    y0: y - r,
+    y1: row - 1,
+  });
+  const { face: lit, shade: band } = planetInks(canvas, behind);
   const dark = canvas.legible({
     over: [
       [INK.middle, 0.5],
@@ -128,7 +151,14 @@ const ringed: PaintWorld = (canvas, random) => {
     ],
     min: CLEAR_OF_HORIZON,
   });
-  const ringInk = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });
+  const ringInk = canvas.legible({
+    over: behind,
+    from: [
+      canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 }),
+      canvas.mix({ from: INK.back, to: INK.horizon, by: 2 }),
+    ],
+    min: CLEAR_OF_HORIZON,
+  });
   const tilt = random.pick([0, 1 / 6, -1 / 6, 1 / 5, -1 / 5]);
   const a = Math.round(r * 1.85);
   const b = Math.round(r * 0.36) + 1;
