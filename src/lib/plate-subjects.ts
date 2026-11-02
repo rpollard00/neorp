@@ -254,7 +254,10 @@ const birds: PlanSubject = (random) => {
   };
 };
 
-const ROAD_STOPS = [0.08, 0.2, 0.42, 0.8];
+/** Rows below the horizon of each pole's foot: nearer, they spread apart. */
+const POLE_DEPTHS = [2, 3.5, 5.5, 9];
+/** How far a pole's top stands above the horizon, for its foot's depth. */
+const POLE_RISE = 1;
 
 const road: PlanSubject = (random) => {
   const bend = random.range(40, 58);
@@ -262,25 +265,44 @@ const road: PlanSubject = (random) => {
     footprint: { on: "ground", width: 8, run: 0 },
     draw: (canvas, stage) => {
       const dir = stage.x < W / 2 ? 1 : -1;
-      const top = stage.surface[stage.x] + 1;
+      const horizon = stage.surface[stage.x];
+      const top = horizon + 1;
       const span = H - top;
-      const surface = canvas.mix({ from: INK.horizon, to: INK.back, by: 3 });
       const centre = (t: number) => stage.x + dir * bend * t ** 1.3;
       const half = (t: number) => 0.5 + t * 3 + t * t * 15;
-      for (let y = top; y < H; y++) {
-        const t = (y - top) / span;
-        canvas.hline(
-          Math.round(centre(t) - half(t)),
-          Math.round(centre(t) + half(t)),
-          y,
-          surface,
-        );
+      const surfaceCells = Array.from({ length: span }, (_, row) => {
+        const t = row / span;
+        const from = Math.round(centre(t) - half(t));
+        const to = Math.round(centre(t) + half(t));
+        return { y: top + row, from, to };
+      });
+      const under = new Map<Ink, number>();
+      for (const { y, from, to } of surfaceCells) {
+        for (const x of [from - 1, to + 1]) {
+          const ink = canvas.get(x, y);
+          under.set(ink, (under.get(ink) ?? 0) + 1);
+        }
       }
-      const poles = ROAD_STOPS.map((t, i) => {
-        const rows = ROAD_POLES[i];
-        const x = Math.round(centre(t) + dir * (half(t) + 3 + t * 14));
-        const y = Math.round(top + t * span) - rows.length + 1;
-        return { rows, x, y };
+      const surface = canvas.legible({
+        over: shares(under),
+        from: [
+          canvas.mix({ from: INK.horizon, to: INK.back, by: 3 }),
+          canvas.mix({ from: INK.back, to: INK.front, by: 4 }),
+          canvas.mix({ from: INK.horizon, to: INK.sun, by: 3 }),
+        ],
+        min: GLOWS,
+      });
+      for (const { y, from, to } of surfaceCells) {
+        canvas.hline(from, to, y, surface);
+      }
+      const poles = POLE_DEPTHS.map((depth) => {
+        const t = depth / span;
+        const tall = Math.round(depth * (1 + POLE_RISE));
+        const rows = ROAD_POLES.reduce((a, b) =>
+          Math.abs(b.length - tall) < Math.abs(a.length - tall) ? b : a,
+        );
+        const x = Math.round(centre(t) + dir * (half(t) + 2 + t * 10));
+        return { rows, x, y: Math.round(top + depth) - rows.length + 1 };
       });
       const wires = poles.flatMap(({ x, y }, i) => {
         const next = poles[i + 1];
@@ -290,7 +312,7 @@ const road: PlanSubject = (random) => {
           y0: y,
           x1: next.x,
           y1: next.y,
-          sag: 0.3 + i * 0.5,
+          sag: 0.2 + i * 0.5,
         });
       });
       const marks = poles.map(({ rows, x, y }) => ({
