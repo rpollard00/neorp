@@ -19,7 +19,11 @@ export type PaintWorld = (canvas: Canvas, random: Random) => void;
 
 const heavens = (canvas: Canvas, row: number, count = 30) => {
   sky(canvas, row);
-  canvas.stars = { limit: Math.round(row * 0.75), count, darkSkies: true };
+  canvas.stars = {
+    limit: Math.round(row * 0.75),
+    count,
+    darkSkies: true,
+  };
 };
 
 const CLEAR_OF_HORIZON = 1.4;
@@ -112,7 +116,14 @@ const ringed: PaintWorld = (canvas, random) => {
   const r = random.range(15, 18);
   const y = row - random.range(4, 8);
   const { face: lit, shade: band } = planetInks(canvas);
-  const dark = canvas.mix({ from: INK.back, to: INK.front, by: 2 });
+  const dark = canvas.legible({
+    over: [
+      [INK.middle, 0.5],
+      [INK.horizon, 0.5],
+    ],
+    from: [canvas.mix({ from: INK.back, to: INK.front, by: 2 }), band],
+    min: CLEAR_OF_HORIZON,
+  });
   const ringInk = canvas.mix({ from: INK.horizon, to: INK.sun, by: 4 });
   const tilt = random.pick([0, 1 / 6, -1 / 6, 1 / 5, -1 / 5]);
   const a = Math.round(r * 1.85);
@@ -131,10 +142,12 @@ const ringed: PaintWorld = (canvas, random) => {
     arc(canvas, { ...shared, y, a: a - 5, b: b - 1, ink: band });
   };
   ring(false);
+  const cut = Math.round(r * 0.45);
   forDisc(r, (dx, dy) => {
-    const shade = ((dx * side + dy * 0.4) / r + 0.1) * 5;
+    const [ox, oy] = [dx + side * cut, dy + 2];
+    const night = ox * ox + oy * oy > r * r + r;
     const stripe = (dy + r + 2) % 9 < 2;
-    const ink = shade > threshold(x + dx, y + dy) ? dark : stripe ? band : lit;
+    const ink = night ? dark : stripe ? band : lit;
     if (y + dy < row) canvas.set(x + dx, y + dy, ink);
   });
   ring(true);
@@ -186,7 +199,7 @@ const monolith: PaintWorld = (canvas, random) => {
   const x = left ? random.range(44, 58) : random.range(98, 112);
   const w = random.range(9, 12);
   const top = random.range(13, 18);
-  canvas.disc({ x: left ? x + 60 : x - 50, y: row - 3, r: 6, ink: INK.sun });
+  canvas.disc({ x: left ? x + 60 : x - 50, y: row - 13, r: 6, ink: INK.sun });
   plain(canvas, random, { row, keepClear: x });
   const dir = left ? -1 : 1;
   for (let y = row; y < H; y++) {
@@ -279,16 +292,16 @@ const hull: PaintWorld = (canvas, random) => {
   plain(canvas, random, { row, keepClear: x + dir * 34 });
   const base = row + 3;
   const seamInk = canvas.mix({ from: INK.front, to: INK.back, by: 3 });
-  const ribs = [17, 19, 19, 17, 14, 10];
-  for (let j = ribs.length - 1; j >= 0; j--) {
+  const ribs = [16, 13, 10];
+  ribs.forEach((tall, j) => {
     hoop(canvas, {
-      x: x + dir * (j * 9 + 22),
+      x: x + dir * (j * 14 + 28),
       base,
-      half: 8,
-      tall: ribs[j],
+      half: 6,
+      tall,
       solid: false,
     });
-  }
+  });
   const nose = x - dir * 10;
   hoop(canvas, { x: nose, base, half: 26, tall: 15, solid: true });
   hoop(canvas, { x: x + dir * 12, base, half: 9, tall: 17, solid: true });
