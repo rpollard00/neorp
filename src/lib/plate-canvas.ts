@@ -191,6 +191,48 @@ export class Canvas {
     this.rect(x, y0, x, y1, ink);
   }
 
+  /**
+   * Gives a lone pixel the ink around it. Shapes drawn over each other can
+   * clip one to a sliver of a single pixel.
+   */
+  clearSpecks({
+    rows: [from, to] = [0, H],
+    keep,
+  }: {
+    rows?: readonly [number, number];
+    keep: readonly Ink[];
+  }) {
+    for (let y = from; y < to; y++) {
+      for (let x = 0; x < W; x++) {
+        const ink = this.get(x, y);
+        if (keep.includes(ink)) continue;
+        let alone = true;
+        for (let dy = -1; dy <= 1 && alone; dy++) {
+          for (let dx = -1; dx <= 1 && alone; dx++) {
+            const [nx, ny] = [x + dx, y + dy];
+            const inside = nx >= 0 && nx < W && ny >= 0 && ny < H;
+            if ((dx || dy) && inside && this.get(nx, ny) === ink) alone = false;
+          }
+        }
+        if (!alone) continue;
+        const around = [
+          [x - 1, y],
+          [x + 1, y],
+          [x, y - 1],
+          [x, y + 1],
+        ]
+          .filter(([nx, ny]) => nx >= 0 && nx < W && ny >= 0 && ny < H)
+          .map(([nx, ny]) => this.get(nx, ny));
+        const most = around.sort(
+          (a, b) =>
+            around.filter((i) => i === b).length -
+            around.filter((i) => i === a).length,
+        )[0];
+        this.set(x, y, most);
+      }
+    }
+  }
+
   disc({ x, y, r, ink }: { x: number; y: number; r: number; ink: Ink }) {
     forDisc(r, (dx, dy) => this.set(x + dx, y + dy, ink));
   }

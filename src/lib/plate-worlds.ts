@@ -73,6 +73,10 @@ const plain = (
     ]),
   );
   canvas.fillBelow(near, INK.front);
+  canvas.clearSpecks({
+    rows: [row - 6, H],
+    keep: [INK.top, INK.middle, INK.horizon, INK.sun],
+  });
 };
 
 type Ellipse = {
@@ -189,6 +193,10 @@ const monolith: PaintWorld = (canvas, random) => {
     const a = Math.round(x + dir * (y - row) * 2.4);
     canvas.hline(a, a + w, y, INK.front);
   }
+  canvas.clearSpecks({
+    rows: [row, H],
+    keep: [INK.top, INK.middle, INK.horizon, INK.sun],
+  });
   canvas.rect(x, top, x + w, row - 1, INK.front);
   canvas.vline(
     left ? x + w : x,

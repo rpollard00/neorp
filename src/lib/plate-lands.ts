@@ -46,6 +46,7 @@ const SIDES: readonly Side[] = [-1, 1];
 
 type LightKind = "sun" | "low" | "moon" | "clouds" | "bare";
 const OFF_PLATE = 1000;
+const SKY_AND_LIGHT = [INK.top, INK.middle, INK.horizon, INK.sun];
 
 const flat = (row: number) => new Array<number>(W).fill(row);
 
@@ -369,6 +370,7 @@ const peaks: PaintLand = (canvas, random, footprint) => {
       })
     : foot;
   canvas.fillBelow(ground, INK.front);
+  canvas.clearSpecks({ keep: SKY_AND_LIGHT });
   return { surface: ground, x, light: light.x };
 };
 
@@ -474,6 +476,7 @@ const dunes: PaintLand = (canvas, random, footprint) => {
         level: footprint.width + 4,
       })
     : flat(50);
+  canvas.clearSpecks({ keep: SKY_AND_LIGHT });
   return { surface, x, light: light.x };
 };
 
@@ -682,6 +685,7 @@ const mesas: PaintLand = (canvas, random, footprint) => {
     ? levelSite(plain, { x, width: footprint.width })
     : plain;
   canvas.fillBelow(surface, INK.back);
+  canvas.clearSpecks({ rows: [0, floor], keep: SKY_AND_LIGHT });
   const ground = canvas.mix({ from: INK.back, to: INK.front, by: 2 });
   for (let y = 48; y < H; y++) {
     const f = (y - 48) / 12;
@@ -832,7 +836,7 @@ const hedgerow = (
     canvas.sprite({
       rows,
       x,
-      y: line[x + (rows[0].length >> 1)] - rows.length,
+      y: line[Math.min(W - 1, x + (rows[0].length >> 1))] - rows.length,
       inks: { "#": ink },
     });
     x += random.range(44, 58);
@@ -913,6 +917,7 @@ const fields: PaintLand = (canvas, random, footprint) => {
     }
   }
   hedgerow(canvas, random, { line: edges[1], ink: INK.front });
+  canvas.clearSpecks({ keep: SKY_AND_LIGHT });
   return {
     surface: edges[0],
     x,
