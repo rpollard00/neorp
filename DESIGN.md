@@ -103,8 +103,8 @@ Rules:
   phones. The breakpoints are in `src/components/Plate.astro`. Below 360px the
   plate shrinks under 2×. A `--chrome` label bar under the plate shows the plate
   number, a date or "Latest", and the palette name.
-- **Scenes** (provisional, approved from mockups on 2026-11-01; not yet accepted
-  as rendered): a plate is a land (sea, peaks, dunes, forest, mesas, lake,
+- **Scenes** (approved from mockups on 2026-11-01; the user accepted the
+  rendered plates on 2026-11-02): a plate is a land (sea, peaks, dunes, forest, mesas, lake,
   fields), and about two thirds of the lands have one small subject (lighthouse,
   cabin, pylons, sailboat, mast, tree, birds, road, or tent). About 1 plate in 12
   is a strange world (ringed, moons, monolith, gate, hull, colony, or mega). This
