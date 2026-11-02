@@ -11,12 +11,12 @@ export const getStaticPaths = (async () => {
       : []),
   ];
   return posts.map((post) => {
-    const { palette, seed } = plateFor(post);
-    return { params: { slug: post.id }, props: { palette, seed } };
+    const { palette, scene, seed } = plateFor(post);
+    return { params: { slug: post.id }, props: { palette, scene, seed } };
   });
 }) satisfies GetStaticPaths;
 
-type Props = Pick<ReturnType<typeof plateFor>, "palette" | "seed">;
+type Props = Pick<ReturnType<typeof plateFor>, "palette" | "scene" | "seed">;
 
 export const GET: APIRoute<Props> = ({ props }) =>
   new Response(drawPlate(props), {

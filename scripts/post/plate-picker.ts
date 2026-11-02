@@ -1,6 +1,7 @@
 import { styleText } from "node:util";
 import { PALETTE_NAMES, type PaletteName } from "../../src/lib/palettes";
 import { renderPlate } from "../../src/lib/plates";
+import type { SceneName } from "../../src/lib/scenes";
 import { UserError } from "./user-error";
 
 type Plate = ReturnType<typeof renderPlate>;
@@ -81,9 +82,11 @@ const paletteLine = (current: PaletteName) =>
 export const pickPlate = ({
   seed,
   palette,
+  scene,
 }: {
   seed: number;
   palette: PaletteName;
+  scene: SceneName;
 }): Promise<PaletteName | undefined> => {
   const { stdin, stdout } = process;
   if (!stdin.isTTY || !stdout.isTTY) {
@@ -98,7 +101,7 @@ export const pickPlate = ({
   const draw = () => {
     const current = PALETTE_NAMES[index];
     const lines = [
-      ...halfBlockLines(renderPlate({ palette: current, seed }), {
+      ...halfBlockLines(renderPlate({ palette: current, scene, seed }), {
         columns: stdout.columns,
         lines: stdout.rows - RESERVED_LINES,
       }),

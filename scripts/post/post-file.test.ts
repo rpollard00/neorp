@@ -120,10 +120,23 @@ describe("serializePost", () => {
       pubDate: new Date("2026-09-14"),
       tags: ["demo"],
       plate: "sea" as const,
+      scene: "lake-cabin" as const,
     };
     const again = parsed(serializePost(post, data));
     expect(again.data).toEqual(data);
     expect(postSchema.parse(again.doc.toJS())).toEqual(data);
+  });
+
+  test("writes a scene after the plate and removes it when it is unset", () => {
+    const post = parsed(`---\ntitle: T\nplate: sea\n---\n${BODY}`);
+    const withScene = serializePost(post, { ...post.data, scene: "gate" });
+    expect(withScene).toStartWith(
+      "---\ntitle: T\nplate: sea\nscene: gate\n---\n",
+    );
+    const again = parsed(withScene);
+    expect(
+      serializePost(again, { ...again.data, scene: undefined }),
+    ).toStartWith("---\ntitle: T\nplate: sea\n---\n");
   });
 
   test("leaves the file alone when nothing changed and keys are in order", () => {

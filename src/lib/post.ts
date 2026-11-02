@@ -1,6 +1,7 @@
 import { z } from "astro/zod";
 import { PALETTE_NAMES } from "./palettes";
 import { formatDay, siteToday } from "./post-plain";
+import { SCENE_NAMES } from "./scenes";
 
 export const postSchema = z.object({
   title: z.string(),
@@ -13,6 +14,7 @@ export const postSchema = z.object({
   pubDate: z.preprocess((value) => value ?? undefined, z.date().optional()),
   tags: z.array(z.string()).optional(),
   plate: z.enum(PALETTE_NAMES).optional(),
+  scene: z.enum(SCENE_NAMES).optional(),
 });
 
 export type PostData = z.infer<typeof postSchema>;

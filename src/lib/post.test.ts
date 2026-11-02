@@ -45,3 +45,19 @@ describe("postSchema pubDate", () => {
     ).toBe(false);
   });
 });
+
+describe("postSchema scene", () => {
+  test("takes a land, a land with a subject, or a world", () => {
+    for (const scene of ["peaks", "peaks-cabin", "monolith"]) {
+      expect(postSchema.parse({ title: "t", scene }).scene).toBe(
+        scene as never,
+      );
+    }
+  });
+
+  test("rejects a name that is not in the list", () => {
+    for (const scene of ["aurora", "sea-tent", "peaks-"]) {
+      expect(postSchema.safeParse({ title: "t", scene }).success).toBe(false);
+    }
+  });
+});

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderPlate } from "../../src/lib/plates";
 import { halfBlockLines } from "./plate-picker";
 
-const plate = renderPlate({ palette: "dusk", seed: 42 });
+const plate = renderPlate({ palette: "dusk", scene: "peaks", seed: 42 });
 
 type Cell = { fg: string; bg: string | undefined };
 

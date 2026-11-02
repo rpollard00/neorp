@@ -285,9 +285,9 @@ const askTags = async (post: PostFile, knownTags: string[]) => {
 };
 
 const askPlate = async (post: PostFile) => {
-  const { seed, palette } = plateFor({ id: post.slug, data: post.data });
+  const { seed, palette, scene } = plateFor({ id: post.slug, data: post.data });
   log.step("Plate");
-  const picked = await pickPlate({ seed, palette });
+  const picked = await pickPlate({ seed, palette, scene });
   const plate = picked && picked !== palette ? picked : post.data.plate;
   log.info(`Plate: ${plate ?? `${palette} (from the slug)`}`);
   return plate;

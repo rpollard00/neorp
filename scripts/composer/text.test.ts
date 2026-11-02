@@ -374,6 +374,17 @@ New body
     );
   });
 
+  test("keeps a scene line and adds tags before the plate", () => {
+    expect(
+      revise({
+        tags: ["z"],
+        current: "---\ntitle: T\nplate: dawn\nscene: peaks-cabin\n---\nx\n",
+      }),
+    ).toBe(
+      '---\ntitle: "New"\ntags: ["z"]\nplate: dawn\nscene: peaks-cabin\n---\n\nNew body\n',
+    );
+  });
+
   test("adds tags at the end when there is no plate", () => {
     expect(
       revise({
