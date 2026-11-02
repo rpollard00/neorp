@@ -48,6 +48,8 @@ const BASE_COLOURS = {
 } satisfies Record<BaseInk, (palette: Palette) => string>;
 
 const MIX_STEPS = 8;
+/** The most pixels a shape may clip down to before it reads as a speck. */
+const SPECK = 2;
 const LEGIBLE_SHARE = 0.9;
 
 const linear = (channel: number) => {
@@ -192,8 +194,8 @@ export class Canvas {
   }
 
   /**
-   * Gives a lone pixel the ink around it. Shapes drawn over each other can
-   * clip one to a sliver of a single pixel.
+   * Gives a speck the ink around it. Shapes drawn over each other can clip
+   * one to a sliver of a pixel or two.
    */
   clearSpecks({
     rows: [from, to] = [0, H],
@@ -202,33 +204,40 @@ export class Canvas {
     rows?: readonly [number, number];
     keep: readonly Ink[];
   }) {
+    const inside = (x: number, y: number) => x >= 0 && x < W && y >= 0 && y < H;
     for (let y = from; y < to; y++) {
       for (let x = 0; x < W; x++) {
         const ink = this.get(x, y);
         if (keep.includes(ink)) continue;
-        let alone = true;
-        for (let dy = -1; dy <= 1 && alone; dy++) {
-          for (let dx = -1; dx <= 1 && alone; dx++) {
-            const [nx, ny] = [x + dx, y + dy];
-            const inside = nx >= 0 && nx < W && ny >= 0 && ny < H;
-            if ((dx || dy) && inside && this.get(nx, ny) === ink) alone = false;
+        const speck: [number, number][] = [[x, y]];
+        for (let i = 0; i < speck.length && speck.length <= SPECK; i++) {
+          const [cx, cy] = speck[i];
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const [nx, ny] = [cx + dx, cy + dy];
+              if (!inside(nx, ny) || this.get(nx, ny) !== ink) continue;
+              if (speck.some(([sx, sy]) => sx === nx && sy === ny)) continue;
+              speck.push([nx, ny]);
+            }
           }
         }
-        if (!alone) continue;
-        const around = [
-          [x - 1, y],
-          [x + 1, y],
-          [x, y - 1],
-          [x, y + 1],
-        ]
-          .filter(([nx, ny]) => nx >= 0 && nx < W && ny >= 0 && ny < H)
+        if (speck.length > SPECK) continue;
+        const around = speck
+          .flatMap(([sx, sy]) => [
+            [sx - 1, sy],
+            [sx + 1, sy],
+            [sx, sy - 1],
+            [sx, sy + 1],
+          ])
+          .filter(([nx, ny]) => inside(nx, ny) && this.get(nx, ny) !== ink)
           .map(([nx, ny]) => this.get(nx, ny));
+        if (around.length === 0) continue;
         const most = around.sort(
           (a, b) =>
             around.filter((i) => i === b).length -
             around.filter((i) => i === a).length,
         )[0];
-        this.set(x, y, most);
+        for (const [sx, sy] of speck) this.set(sx, sy, most);
       }
     }
   }
@@ -333,6 +342,19 @@ export const pixelContour = (raw: readonly number[]) => {
   for (let pass = 0; pass < 3; pass++) {
     for (let x = 1; x < W - 1; x++) {
       if (h[x - 1] === h[x + 1] && h[x] !== h[x - 1]) h[x] = h[x - 1];
+    }
+  }
+  // A step one or two columns from the plate's edge has no far side to
+  // match, so it joins the run next to it.
+  for (const [edge, inward] of [
+    [0, 1],
+    [W - 1, -1],
+  ]) {
+    let run = 1;
+    while (run < 3 && h[edge + inward * run] === h[edge]) run++;
+    if (run < 3) {
+      for (let i = 0; i < run; i++)
+        h[edge + inward * i] = h[edge + inward * run];
     }
   }
   return h;

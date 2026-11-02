@@ -95,4 +95,13 @@ describe("contours", () => {
       if (bump) expect(contour[x]).toBe(contour[x - 1]);
     }
   });
+
+  test("have no step of one or two columns at the plate's edge", () => {
+    const raw = Array.from({ length: PLATE_WIDTH }, (_, x) =>
+      x < 2 ? 31 : x >= PLATE_WIDTH - 2 ? 39 : 40,
+    );
+    const contour = pixelContour(raw);
+    expect(contour.slice(0, 3)).toEqual([40, 40, 40]);
+    expect(contour.slice(-3)).toEqual([40, 40, 40]);
+  });
 });

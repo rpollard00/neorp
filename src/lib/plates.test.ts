@@ -223,41 +223,40 @@ const OPEN: readonly number[] = [INK.top, INK.middle, INK.horizon, INK.sun];
 const SWEEP = Array.from({ length: 60 }, (_, i) => Math.imul(i + 1, 40503));
 
 describe("land without dither", () => {
-  /** Where every shape is flat colour, a pixel always has a neighbour of its ink. */
-  const FLAT: readonly SceneName[] = [
-    "peaks",
-    "dunes",
-    "fields",
-    "hull",
-    "mega",
-    "moons",
-    "monolith",
-  ];
-  const OPEN: readonly number[] = [INK.top, INK.middle, INK.horizon, INK.sun];
+  /** Where every shape is flat colour, nothing clips down to a speck. */
+  const FLAT = SCENE_NAMES.filter((scene) => {
+    const picked = SCENES[scene];
+    return picked.kind === "world"
+      ? ["hull", "mega", "moons", "monolith"].includes(picked.world)
+      : ["peaks", "dunes", "fields"].includes(picked.land);
+  });
 
-  test.each([...FLAT])("%s has no lone pixel", (scene) => {
-    for (let seed = 0; seed < 40; seed++) {
-      const canvas = composeScene({ scene, seed: Math.imul(seed + 1, 40503) });
-      const lone: string[] = [];
+  test.each([...FLAT])("%s has no speck of one or two pixels", (scene) => {
+    for (const seed of SWEEP) {
+      const canvas = landOf(scene, seed);
+      const specks: string[] = [];
       for (let y = 0; y < PLATE_HEIGHT; y++) {
         for (let x = 0; x < PLATE_WIDTH; x++) {
           const ink = canvas.get(x, y);
           if (OPEN.includes(ink)) continue;
-          let alone = true;
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              const [nx, ny] = [x + dx, y + dy];
-              const inside =
-                nx >= 0 && nx < PLATE_WIDTH && ny >= 0 && ny < PLATE_HEIGHT;
-              if ((dx || dy) && inside && canvas.get(nx, ny) === ink) {
-                alone = false;
+          const piece = [[x, y]];
+          for (let i = 0; i < piece.length && piece.length <= 2; i++) {
+            const [px, py] = piece[i];
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const [nx, ny] = [px + dx, py + dy];
+                const inside =
+                  nx >= 0 && nx < PLATE_WIDTH && ny >= 0 && ny < PLATE_HEIGHT;
+                if (!inside || canvas.get(nx, ny) !== ink) continue;
+                if (piece.some(([qx, qy]) => qx === nx && qy === ny)) continue;
+                piece.push([nx, ny]);
               }
             }
           }
-          if (alone) lone.push(`${x},${y}`);
+          if (piece.length <= 2) specks.push(`${seed}@${x},${y}`);
         }
       }
-      expect(lone).toEqual([]);
+      expect(specks).toEqual([]);
     }
   });
 });
