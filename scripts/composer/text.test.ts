@@ -5,7 +5,9 @@ import {
   normalizeBody,
   readTags,
   isRuleLine,
+  isSubtitleLine,
   revisedPostFile,
+  webUrl,
 } from "./text";
 
 const DAY = "2026-10-31";
@@ -246,7 +248,7 @@ describe("newPostFile", () => {
   });
 
   test("normalizes the body", () => {
-    expect(post("T\ntext\n---\n```\n“a”\n```").source).toEndWith(
+    expect(post("T\n\ntext\n---\n```\n“a”\n```").source).toEndWith(
       '---\n\ntext\n\n---\n```\n"a"\n```\n',
     );
   });
@@ -283,6 +285,128 @@ describe("newPostFile", () => {
   });
 });
 
+describe("subtitle", () => {
+  test("the line directly under the title is the description", () => {
+    expect(post("Title\nThe dek line.\n\nBody").source).toBe(
+      '---\ntitle: "Title"\ndescription: "The dek line."\npubDate: 2026-10-31\n---\n\nBody\n',
+    );
+  });
+
+  test("a description with YAML characters survives a real YAML parser", () => {
+    const dek = `Quotes " and : colons # hash`;
+    expect(frontmatterOf(post(`Title\n  ${dek}  `).source).description).toBe(
+      dek,
+    );
+  });
+
+  test("a blank line after the title means no subtitle", () => {
+    const file = post("Title\n\nBody");
+    expect(file.source).not.toContain("description");
+    expect(file.source).toEndWith("---\n\nBody\n");
+  });
+
+  test("only the second line is the subtitle", () => {
+    expect(post("Title\nDek\nMore text").source).toEndWith(
+      '---\ntitle: "Title"\ndescription: "Dek"\npubDate: 2026-10-31\n---\n\nMore text\n',
+    );
+  });
+
+  test.each([
+    ["a heading", "## Part"],
+    ["a list item", "- one"],
+    ["a numbered item", "1. one"],
+    ["a numbered item with a parenthesis", "1) one"],
+    ["a quote", "> said"],
+    ["a table row", "| a | b |"],
+    ["a fence", "```"],
+    ["a rule", "---"],
+    ["a setext underline", "==="],
+    ["a link card", "https://example.com/a"],
+  ])("%s under the title is body, not a subtitle", (_name, line) => {
+    const file = post(`Title\n${line}\nx`);
+    expect(file.source).not.toContain("description");
+    expect(isSubtitleLine(line)).toBe(false);
+  });
+
+  test.each(["Plain words", "#hashtag", "A link to https://example.com"])(
+    "%p can be a subtitle",
+    (line) => {
+      expect(isSubtitleLine(line)).toBe(true);
+    },
+  );
+
+  test("a capped title has no subtitle", () => {
+    const line = `${"word ".repeat(20)}end`;
+    const file = post(`${line}\nsecond`);
+    expect(file.source).not.toContain("description");
+    expect(file.source).toEndWith(`---\n\n${line}\nsecond\n`);
+  });
+
+  test("text that starts with code has no subtitle", () => {
+    expect(post("```\ncode\n```").source).not.toContain("description");
+  });
+
+  test("a heading title can have a subtitle", () => {
+    expect(frontmatterOf(post("# Title\nDek").source)).toMatchObject({
+      title: "Title",
+      description: "Dek",
+    });
+  });
+
+  test("a line too long for a subtitle stays whole in the body", () => {
+    const line = `${"word ".repeat(50)}end`;
+    const file = post(`Title\n${line}`);
+    expect(file.source).not.toContain("description");
+    expect(file.source).toEndWith(`---\n\n${line}\n`);
+  });
+
+  test.each([
+    ["an image", "![a cat](cat.png)"],
+    ["a link", "[a page](https://example.com/a)"],
+    ["an angle-bracket URL", "<https://example.com/a>"],
+    ["HTML", "<em>loud</em> words"],
+  ])("%s under the title stays in the body", (_name, line) => {
+    const file = post(`Title\n${line}`);
+    expect(file.source).not.toContain("description");
+    expect(file.source).toEndWith(`---\n\n${line}\n`);
+  });
+
+  test.each([
+    ["**bold** words", "bold words"],
+    ["__bold__ words", "bold words"],
+    ["an *em* word", "an em word"],
+    ["an _em_ word", "an em word"],
+    ["some `code` here", "some code here"],
+    ["***both*** at once", "both at once"],
+    ["`a *b* c` stays", "a *b* c stays"],
+    ["snake_case_name and 2 * 3 * 4", "snake_case_name and 2 * 3 * 4"],
+    ["a lone * star and _ low", "a lone * star and _ low"],
+  ])("the subtitle %p reads as %p", (line, description) => {
+    expect(frontmatterOf(post(`Title\n${line}`).source).description).toBe(
+      description,
+    );
+  });
+});
+
+describe("webUrl", () => {
+  test.each([
+    ["https://example.com", "https://example.com"],
+    ["  http://example.com/a?b=c  ", "http://example.com/a?b=c"],
+  ])("accepts %p", (raw, url) => {
+    expect(webUrl(raw)).toBe(url);
+  });
+
+  test.each([
+    "",
+    "example.com",
+    "ftp://example.com",
+    "https://",
+    "https://a b",
+  ])("refuses %p", (raw) => {
+    expect(webUrl(raw)).toBeUndefined();
+  });
+});
+
 describe("revisedPostFile", () => {
   const current = `---
 title: Old title
@@ -298,11 +422,16 @@ Old body.
   const revise = (
     args: Partial<Parameters<typeof revisedPostFile>[0]>,
   ): string | undefined =>
-    revisedPostFile({ text: "New\n\nNew body", tags: [], current, ...args })
-      ?.source;
+    revisedPostFile({
+      text: "New\n\nNew body",
+      tags: [],
+      current,
+      ...args,
+    })?.source;
 
   test("replaces the title, tags, and body, and keeps other bytes", () => {
-    expect(revise({ tags: ["new"] })).toBe(`---
+    expect(revise({ text: "New\nKeep: this\n\nNew body", tags: ["new"] }))
+      .toBe(`---
 title: "New"
 description: "Keep: this"
 pubDate: 2026-01-02
@@ -406,10 +535,62 @@ New body
   });
 
   test("keeps a block scalar in another key", () => {
-    const description = "description: |\n  title: not a title\n  more";
+    const summary = "summary: |\n  title: not a title\n  more";
     expect(
-      revise({ current: `---\ntitle: T\n${description}\n---\nx\n` }),
-    ).toContain(description);
+      revise({ current: `---\ntitle: T\n${summary}\n---\nx\n` }),
+    ).toContain(summary);
+  });
+
+  test("adds a description directly after the title", () => {
+    expect(
+      revise({
+        text: "New\nA dek\n\nNew body",
+        current: "---\ntitle: T\npubDate: 2026-01-02\n---\nx\n",
+      }),
+    ).toBe(
+      '---\ntitle: "New"\ndescription: "A dek"\npubDate: 2026-01-02\n---\n\nNew body\n',
+    );
+  });
+
+  test("replaces a description in its place", () => {
+    expect(
+      revise({
+        text: "New\nA dek",
+        current:
+          "---\ntitle: T\npubDate: 2026-01-02\ndescription: 'Old'\n---\nx\n",
+      }),
+    ).toBe(
+      '---\ntitle: "New"\npubDate: 2026-01-02\ndescription: "A dek"\n---\n',
+    );
+  });
+
+  test("removes the description when the pad has no subtitle", () => {
+    expect(revise({ text: "New\n\nNew body", tags: ["z"] })).toBe(`---
+title: "New"
+pubDate: 2026-01-02
+tags: ["z"]
+plate: dawn
+---
+
+New body
+`);
+  });
+
+  test("a fence first keeps the description of the post", () => {
+    expect(revise({ text: "```\ncode\n```" })).toContain(
+      'description: "Keep: this"',
+    );
+  });
+
+  test.each([
+    ["a block scalar", "---\ntitle: T\ndescription: >-\n  one\n---\nx\n"],
+    ["a multi-line plain", "---\ntitle: T\ndescription: one\n  two\n---\nx\n"],
+    [
+      "two descriptions",
+      "---\ntitle: T\ndescription: a\ndescription: b\n---\nx\n",
+    ],
+  ])("refuses %s description", (_, file) => {
+    expect(revise({ current: file })).toBeUndefined();
   });
 
   test("keeps a --- in the old body out of the frontmatter", () => {
@@ -448,14 +629,15 @@ New body
   });
 
   test("the result parses, and a second revision keeps the same bytes", () => {
-    const once = revise({ tags: ["a"] }) ?? "";
+    const text = "New\nKeep: this\n\nNew body";
+    const once = revise({ text, tags: ["a"] }) ?? "";
     expect(frontmatterOf(once)).toMatchObject({
       title: "New",
       description: "Keep: this",
       tags: ["a"],
       plate: "dawn",
     });
-    expect(revise({ tags: ["a"], current: once })).toBe(once);
+    expect(revise({ text, tags: ["a"], current: once })).toBe(once);
   });
 });
 

@@ -1,10 +1,12 @@
 import {
   isRecord,
+  parseLinkPreview,
   parsePad,
   parseProved,
   parsePutAnswer,
   parseShipStatus,
   sameContent,
+  type LinkPreview,
   type Pad,
   type PadId,
   type Proved,
@@ -24,6 +26,7 @@ const RETRY_WAITS = [0, 500, 1500];
 const SYNC_TIMEOUT_MS = 20_000;
 const PROVE_TIMEOUT_MS = 180_000;
 const SHIP_TIMEOUT_MS = 60_000;
+const PREVIEW_TIMEOUT_MS = 10_000;
 /** Chromium and WebKit reject `keepalive` bodies over 64 KiB in flight, in total. */
 const KEEPALIVE_BUDGET = 60_000;
 const utf8 = new TextEncoder();
@@ -686,6 +689,14 @@ export const createStore = (deps: StoreDeps) => {
         waits: RETRY_WAITS,
         timeout: PROVE_TIMEOUT_MS,
         parse: parseProved,
+      }),
+
+    linkPreview: (url: string): Promise<Outcome<LinkPreview>> =>
+      call({
+        method: "GET",
+        path: `/api/link-preview?url=${encodeURIComponent(url)}`,
+        timeout: PREVIEW_TIMEOUT_MS,
+        parse: parseLinkPreview,
       }),
 
     beginShip: (sha: Sha) => {

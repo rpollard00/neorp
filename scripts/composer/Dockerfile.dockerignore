@@ -3,6 +3,9 @@
 !bun.lock
 !src/site.ts
 !src/lib/post-plain.ts
+!src/lib/link-cards.ts
+!scripts/links/
+!scripts/links/*.ts
 !scripts/composer/protocol.ts
 !scripts/composer/text.ts
 !scripts/composer/server/

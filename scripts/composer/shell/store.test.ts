@@ -1866,6 +1866,33 @@ describe("tags", () => {
   });
 });
 
+describe("link preview", () => {
+  test("asks for the encoded URL and reads the answer", async () => {
+    const urls: string[] = [];
+    const { store } = setup({
+      handler: (url) => {
+        urls.push(url);
+        return json({ url: "https://a.example/?q=1", site: "A", title: "T" });
+      },
+    });
+    const outcome = await store.linkPreview("https://a.example/?q=1");
+    expect(urls).toEqual([
+      "/api/link-preview?url=https%3A%2F%2Fa.example%2F%3Fq%3D1",
+    ]);
+    expect(outcome).toEqual({
+      kind: "answer",
+      answer: { url: "https://a.example/?q=1", site: "A", title: "T" },
+    });
+  });
+
+  test.each([400, 502])("a %i is a server error", async (status) => {
+    const { store } = setup({ handler: () => json({}, status) });
+    expect((await store.linkPreview("https://a.example")).kind).toBe(
+      "server-error",
+    );
+  });
+});
+
 describe("parsers", () => {
   test("parseProved reads each shape", () => {
     expect(parseProved({ kind: "proved", sha: SHA, url: "u" })?.kind).toBe(

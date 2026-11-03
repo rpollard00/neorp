@@ -96,6 +96,18 @@ Rules:
 - **Checker**: a `--text` checkerboard with 2px squares. It is the blockquote bar
   (8px wide) and the break under the article intro (8px tall, full column
   width).
+- **Link card** (`src/lib/link-cards.ts`; approved from mockups on
+  2026-11-02): a URL alone in its own paragraph of a `.md` post shows as a
+  card. A URL in a sentence, a list, or a quote stays a normal link. The card
+  is a `--page` panel with a 2px `--text` border. It shows the site name as a
+  mono label, the page title in bold, and up to two lines of description in
+  `--muted`. A 7×7 pixel arrow in `--pop-text` is at the top right. A `--text`
+  checker shadow with 2px squares sits 6px down and to the right. On hover and
+  focus, the panel moves 3px into the shadow, like a pressed button, and the
+  title becomes `--pop-text` with a 2px underline. The card has no `--pop`
+  fill. The data comes from `src/data/link-cards.json`. `bun post publish`
+  and the composer fill this file when they publish a post. The build does
+  not fetch pages. A URL with no entry shows its domain and the URL.
 - **Plate** (`src/lib/plates.ts`, served at `/plates/<slug>.png`): a 160×60
   pixel scene made from a named scene, a named palette, and a seed. The build
   generates one for each post. It shows at whole-pixel scales only: 5× for the

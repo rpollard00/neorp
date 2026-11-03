@@ -64,43 +64,76 @@
       </form>
 
       <div class="bar" data-bar="write" hidden>
-        <div class="meta-line" id="meta-line">
-          <span class="tags" id="tag-line"></span>
-          <span class="label save" id="save" role="status"></span>
+        <div
+          class="pop"
+          id="tag-pop"
+          role="dialog"
+          aria-label="Tags"
+          data-keep-focus
+          hidden
+        >
+          <div class="chips" id="chips"></div>
+          <form class="add" id="add-tag">
+            <input
+              id="new-tag"
+              type="text"
+              aria-label="New tag"
+              placeholder="New tag"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+            />
+            <button type="submit" class="link">Add</button>
+          </form>
         </div>
-        <p class="msg" id="msg" role="status" hidden>
-          <span class="label" id="msg-label"></span>
-          <span id="msg-text"></span>
-        </p>
-        <div class="ctrl-line">
-          <div
-            class="pop"
-            id="tag-pop"
-            role="dialog"
-            aria-label="Tags"
-            data-keep-focus
-            hidden
-          >
-            <div class="chips" id="chips"></div>
-            <form class="add" id="add-tag">
-              <input
-                id="new-tag"
-                type="text"
-                aria-label="New tag"
-                placeholder="New tag"
-                autocapitalize="none"
-                autocorrect="off"
-                spellcheck="false"
-              />
-              <button type="submit" class="link">Add</button>
-            </form>
-          </div>
-          <button
-            type="button"
-            class="link"
-            id="earlier-link"
-            data-action="open-earlier"
-          ></button>
+        <div
+          class="pop"
+          id="link-pop"
+          role="dialog"
+          aria-label="Link"
+          data-keep-focus
+          hidden
+        >
+          <form class="link-form" id="link-form">
+            <input
+              id="link-url"
+              type="url"
+              inputmode="url"
+              aria-label="URL"
+              placeholder="https://"
+              autocapitalize="none"
+              autocomplete="off"
+              autocorrect="off"
+              spellcheck="false"
+            />
+            <input
+              id="link-text"
+              type="text"
+              aria-label="Link text"
+              placeholder="Link text"
+              autocomplete="off"
+            />
+            <p class="link-preview" id="link-preview" hidden>
+              <span class="label" id="link-site"></span>
+              <span id="link-title"></span>
+            </p>
+            <div class="link-actions">
+              <button
+                type="button"
+                class="link"
+                id="link-card"
+                data-action="insert-card"
+                disabled
+              >
+                Card
+              </button>
+              <button type="submit" class="btn" id="link-insert" disabled>
+                Link
+              </button>
+            </div>
+          </form>
+        </div>
+        <div class="meta-line" id="meta-line">
           <span class="tools" id="tools">
             <button
               type="button"
@@ -112,6 +145,26 @@
               data-keep-focus
             >
               Tags
+            </button>
+            <button
+              type="button"
+              class="link"
+              id="link-toggle"
+              aria-expanded="false"
+              aria-controls="link-pop"
+              data-action="toggle-link"
+              data-keep-focus
+            >
+              Link
+            </button>
+            <button
+              type="button"
+              class="tool"
+              aria-label="Heading"
+              data-action="cycle-heading"
+              data-keep-focus
+            >
+              ##
             </button>
             <button
               type="button"
@@ -132,6 +185,20 @@
               ```
             </button>
           </span>
+          <span class="label save" id="save" role="status"></span>
+        </div>
+        <p class="msg" id="msg" role="status" hidden>
+          <span class="label" id="msg-label"></span>
+          <span id="msg-text"></span>
+        </p>
+        <div class="ctrl-line">
+          <button
+            type="button"
+            class="link"
+            id="earlier-link"
+            data-action="open-earlier"
+          ></button>
+          <span class="tags" id="tag-line"></span>
           <span class="label save" id="save-beside" hidden></span>
           <button
             type="button"

@@ -21,6 +21,9 @@ import { createPads } from "./pads";
 import { createPipeline, type FetchSite, type Pipeline } from "./pipeline";
 import { createFixture, makePad, type Fixture } from "./fixture";
 import type { Proved, Sha, Slug } from "../protocol";
+import { LINK_CARDS_PATH, type LinkCard } from "../../../src/lib/link-cards";
+import { formatLinkCards, parseLinkCards } from "../../links/fill";
+import type { FetchCard } from "../../links/meta";
 
 setDefaultTimeout(30_000);
 
@@ -38,6 +41,21 @@ const newPipeline = (
 };
 
 const notFound: FetchSite = async () => new Response("", { status: 404 });
+
+const KEPT = "https://kept.example.com/";
+const NEW = "https://new.example.com/page";
+const DOWN = "https://down.example.com/";
+const NEW_CARD: LinkCard = { site: "New", title: "A new page" };
+const LINKS_PAD = `Links\n\n${KEPT}\n\n${NEW}\n\nSee ${DOWN} too.\n\n${DOWN}`;
+
+const fakeCards = () => {
+  const asked: string[] = [];
+  const fetchCard: FetchCard = async (url) => {
+    asked.push(url);
+    return url === NEW ? NEW_CARD : undefined;
+  };
+  return { asked, fetchCard };
+};
 
 const proved = async (run: Promise<Proved>) => {
   const answer = await run;
@@ -108,6 +126,71 @@ describe("prove", () => {
       await readFile(proofFile("posts/my-post/index.html"), "utf8"),
     ).toContain("Hello.");
     expect(await slotSha()).toBe(sha);
+  });
+
+  test("puts the new cards of the post in the same commit", async () => {
+    const kept: LinkCard = { site: "Kept", title: "Kept page" };
+    await fixture.pushFromLaptop({
+      [LINK_CARDS_PATH]: formatLinkCards({ [KEPT]: kept }),
+    });
+    const { asked, fetchCard } = fakeCards();
+    const cards = newPipeline({ fetchSite: notFound, fetchCard });
+    const { sha } = await proved(
+      cards.prove({ pad: makePad({ text: LINKS_PAD }) }),
+    );
+    expect(asked.sort()).toEqual([DOWN, NEW]);
+    expect(
+      await fixture.cloneGit(
+        "diff-tree",
+        "--no-commit-id",
+        "--name-status",
+        "-r",
+        sha,
+      ),
+    ).toBe(`A\tsrc/content/posts/links.md\nM\t${LINK_CARDS_PATH}`);
+    expect(
+      parseLinkCards(
+        await fixture.cloneGit("show", `${sha}:${LINK_CARDS_PATH}`),
+      ),
+    ).toEqual({ [KEPT]: kept, [NEW]: NEW_CARD });
+  });
+
+  test("a card file that is not JSON adds no cards and does not stop the proof", async () => {
+    await fixture.pushFromLaptop({ [LINK_CARDS_PATH]: "{ not json" });
+    const { asked, fetchCard } = fakeCards();
+    const cards = newPipeline({ fetchSite: notFound, fetchCard });
+    const { sha } = await proved(
+      cards.prove({ pad: makePad({ text: LINKS_PAD }) }),
+    );
+    expect(asked).toEqual([]);
+    expect(
+      await fixture.cloneGit(
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        sha,
+      ),
+    ).toBe("src/content/posts/links.md");
+  });
+
+  test("leaves the card file out when no card was found", async () => {
+    const cards = newPipeline({
+      fetchSite: notFound,
+      fetchCard: async () => undefined,
+    });
+    const { sha } = await proved(
+      cards.prove({ pad: makePad({ text: LINKS_PAD }) }),
+    );
+    expect(
+      await fixture.cloneGit(
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        sha,
+      ),
+    ).toBe("src/content/posts/links.md");
   });
 
   test("a build tree has no git directory, and goes away after the build", async () => {
@@ -405,13 +488,15 @@ describe("revise", () => {
 
   test("keeps the slug, the date, and other frontmatter", async () => {
     const { sha, url } = await proved(
-      pipeline.prove({ pad: await revisePad() }),
+      pipeline.prove({
+        pad: await revisePad({ text: "New title\nNew subtitle\n\nNew body." }),
+      }),
     );
     expect(url).toEndWith("/posts/hello-world/");
     expect(
       await fixture.cloneGit("show", `${sha}:src/content/posts/hello-world.md`),
     ).toBe(
-      '---\ntitle: "New title"\ndescription: The first post.\npubDate: 2026-01-02\ntags: ["fresh"]\nplate: dawn\n---\n\nNew body.',
+      '---\ntitle: "New title"\ndescription: "New subtitle"\npubDate: 2026-01-02\ntags: ["fresh"]\nplate: dawn\n---\n\nNew body.',
     );
     expect(await fixture.cloneGit("log", "-1", "--format=%s", sha)).toBe(
       "post: revise New title",
@@ -470,6 +555,25 @@ describe("revise", () => {
         pad: await revisePad({ slug: "absent" as Slug }),
       }),
     ).toEqual({ kind: "refused", why: { kind: "not-revisable" } });
+  });
+
+  test("a revision that changes nothing commits no new cards alone", async () => {
+    const text = `New title\n\n${NEW}`;
+    const quiet = newPipeline({
+      fetchSite: notFound,
+      fetchCard: async () => undefined,
+    });
+    const { sha } = await proved(
+      quiet.prove({ pad: await revisePad({ text }) }),
+    );
+    await fixture.cloneGit("push", "origin", `${sha}:refs/heads/main`);
+    const { asked, fetchCard } = fakeCards();
+    const cards = newPipeline({ fetchSite: notFound, fetchCard });
+    expect(await cards.prove({ pad: await revisePad({ text }) })).toEqual({
+      kind: "refused",
+      why: { kind: "unchanged" },
+    });
+    expect(asked).toEqual([]);
   });
 
   test("a revision that changes nothing has no commit", async () => {
@@ -631,6 +735,23 @@ describe("ship", () => {
         kind: "live",
         url: "https://site.test/posts/a-title/",
         slug: "a-title" as Slug,
+      });
+    });
+
+    test("a new post with cards is still live after the slot moved on", async () => {
+      const live = newPipeline({
+        fetchSite: site(200),
+        fetchCard: fakeCards().fetchCard,
+      });
+      const { sha } = await proved(
+        live.prove({ pad: makePad({ text: LINKS_PAD }) }),
+      );
+      await live.ship({ sha });
+      await proved(live.prove({ pad: makePad({ text: "Another" }) }));
+      expect(await live.ship({ sha })).toEqual({
+        kind: "live",
+        url: "https://site.test/posts/links/",
+        slug: "links" as Slug,
       });
     });
 

@@ -15,10 +15,13 @@ import {
   text,
   type CANCEL_SYMBOL,
 } from "@clack/prompts";
+import { LINK_CARDS_PATH } from "../../src/lib/link-cards";
 import { postState, type PostData } from "../../src/lib/post";
 import { formatDay, siteToday } from "../../src/lib/post-plain";
 import { plateFor } from "../../src/lib/plates";
 import { SITE } from "../../src/site";
+import { fillLinkCards } from "../links/fill";
+import { fetchCardFromWeb, type FetchCard } from "../links/meta";
 import { pickedFields, pickPlate } from "./plate-picker";
 import {
   findPost,
@@ -191,14 +194,28 @@ export const preflight = ({ cwd = ROOT }: { cwd?: string } = {}) => {
   }
 };
 
+export const filesetOf = ({
+  cwd = ROOT,
+  paths,
+}: {
+  cwd?: string;
+  paths: string[];
+}) =>
+  paths
+    .map((path) => `root:${JSON.stringify(relative(cwd, path))}`)
+    .join(" | ");
+
 /** Moves the post's changes out of @ into a new commit directly below it. */
-const commitPost = ({
+export const commitPost = ({
+  cwd = ROOT,
   fileset,
   message,
 }: {
+  cwd?: string;
   fileset: string;
   message: string;
 }) => {
+  const jj = jjIn(cwd);
   if (!jj(["diff", "-r", "@", "--summary", "--", fileset])) return false;
   jj(["new", "--no-edit", "--insert-before", "@", "-m", message]);
   jj([
@@ -313,6 +330,47 @@ const askDate = async (initial: Date) => {
   return date;
 };
 
+const readIfPresent = (path: string) =>
+  existsSync(path) ? readFile(path, "utf8") : Promise.resolve(undefined);
+
+/** Cards never block publishing: on any problem the post shows domains until the next publish. */
+export const fillCards = async ({
+  root = ROOT,
+  post,
+  markdown,
+  fetchCard = fetchCardFromWeb,
+}: {
+  root?: string;
+  post: Pick<PostFile, "path">;
+  markdown: string;
+  fetchCard?: FetchCard;
+}): Promise<{ added: string[] }> => {
+  // linkCardsPlugin leaves MDX alone.
+  if (!post.path.endsWith(".md")) return { added: [] };
+  const fetching = spinner();
+  fetching.start("Reading link cards");
+  let filled: { added: string[]; failed: string[] };
+  try {
+    filled = await fillLinkCards({ root, markdown, fetchCard });
+  } catch (error) {
+    fetching.error("Link cards were not read.");
+    log.warn(
+      `${error instanceof Error ? error.message : String(error)} The post shows domains for its cards.`,
+    );
+    return { added: [] };
+  }
+  const { added, failed } = filled;
+  if (added.length === 0 && failed.length === 0) fetching.clear();
+  else fetching.stop(`Link cards: ${added.length} added.`);
+  for (const url of added) log.info(`Card for ${url}`);
+  for (const url of failed) {
+    log.warn(
+      `No card for ${url}. The post shows its domain until the next publish.`,
+    );
+  }
+  return { added };
+};
+
 const moveMain = (): { pushed: boolean } => {
   jj(["bookmark", "set", "main", "-r", "@-"]);
   const change = jj([
@@ -401,7 +459,13 @@ export const publish = async ({
   }
 
   const original = await readFile(post.path, "utf8");
+  const cardsPath = join(ROOT, LINK_CARDS_PATH);
+  const originalCards = await readIfPresent(cardsPath);
   await writePost(post, data);
+  const cards = await fillCards({
+    post,
+    markdown: await readFile(post.path, "utf8"),
+  });
   const building = spinner();
 
   if (!versioned) {
@@ -424,12 +488,17 @@ export const publish = async ({
     path: post.path,
     paths: posts.map((p) => p.path),
   });
-  const fileset = `root:${JSON.stringify(relative(ROOT, path))}`;
+  const fileset = filesetOf({
+    paths: [path, ...(cards.added.length > 0 ? [cardsPath] : [])],
+  });
   const message = `post: ${revision ? "revise " : ""}${data.title}`;
   const committed = commitPost({ fileset, message });
   const undo = async () => {
     if (committed) uncommitPost(fileset);
     await writeFile(post.path, original);
+    if (cards.added.length === 0) return;
+    if (originalCards === undefined) await rm(cardsPath, { force: true });
+    else await writeFile(cardsPath, originalCards);
   };
 
   building.start("Building what ships (@-)");

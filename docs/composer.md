@@ -21,8 +21,11 @@ The design has three requirements, in this order:
 
 - A short post is a plain post. The site and `postSchema` do not change.
 - The owner types text. The first line is the title.
+- The line directly under the title is the subtitle. The composer writes it as
+  `description`, and the site shows it under the title. A blank line after the
+  title means no subtitle.
 - Tags are optional. A popover adds them.
-- The composer skips the description and the plate.
+- The composer skips the plate.
 - The editor shows Markdown formatting while the owner types.
 - The target device is an iPhone.
 - The composer is on the Unraid server.
@@ -39,7 +42,8 @@ The design has three requirements, in this order:
    If that frees too little, the status says "Not saved on this phone", and the
    text stays in memory until the server has it.
 3. If the server is reachable, the app saves the text to the server.
-   The owner can tap **Tags** to add tags.
+   The owner can tap **Tags** to add tags, **Link** to add a link or a link
+   card, and **##** to make the line a heading.
 4. The owner taps **Preview**. After an estimated 5 to 10 seconds, the app shows
    the real built page.
 5. The owner taps **Publish**. The status changes to "Pushed", then to "Live".
@@ -55,6 +59,7 @@ GET  /api/session              -> nothing     refresh the cookie at launch
 PUT  /api/pads/:id  Pad        -> { rev, same } save a pad, safe to retry
 GET  /api/pads                 -> Pad[]       restore pads after storage loss
 GET  /api/tags                 -> string[]    tags in use on main
+GET  /api/link-preview?url=    -> LinkPreview  the site name and title of a page
 POST /api/prove     { pad }    -> Proved      build the exact commit that can ship
 POST /api/ship      { sha }    -> ShipStatus  push that commit, call again to poll
 GET  /*                                       app shell, cached by the service worker
@@ -135,16 +140,23 @@ checker break, because `.prose hr` paints it. A fenced code block uses the Shiki
 The editor uses CodeMirror 6, bundled into the shell at image build. The server
 process does not import it. The editor shows these items while the owner types:
 
-- The first line in bold, as the title.
+- The first line with text in bold, as the title.
+- The subtitle line in the muted color.
+- A URL alone in its paragraph in a frame, as the link card that the site shows.
 - A `---` line as the checker break. On the line of the cursor, the text shows.
 - A fenced code block as a dark panel in a mono font, with dim fence lines.
 - A `>` line with the checker bar.
 - Bold, italic, inline code, and `##` headings.
 
-The bottom bar has one control for a separator and one for a code block. Each
-control inserts the Markdown, because backticks are slow to type on an iPhone
-keyboard. The editor does not color code tokens. The preview shows the Shiki
-colors.
+The bottom bar has a row of tools: **Tags**, **Link**, **##**, a separator, and
+a code block. Each tool inserts the Markdown, because brackets and backticks are
+slow to type on an iPhone keyboard. **##** changes the line of the cursor from
+text to `##`, to `###`, and back to text. It does not change the title line. The
+editor does not color code tokens. The preview shows the Shiki colors.
+
+The second row of the bar has **Earlier**, the tags of the pad, and
+**Preview**. At 375 px, the five tools, Earlier, and Preview do not fit on one
+row with 44 px targets.
 
 `normalizeBody` corrects the text at prove time. The owner sees the result in
 the preview. It applies these rules:
@@ -158,6 +170,45 @@ the preview. It applies these rules:
 
 An unclosed fence runs to the end of the post, as in all Markdown. The preview
 shows this.
+
+### Links
+
+The **Link** control opens a popover above the bar, in place of the tag
+popover. The popover has a URL field and a text field:
+
+- The text field starts with the selected text.
+- If the clipboard holds an http or https URL, the URL field starts with it.
+  iOS can show a Paste button first.
+- When the URL is valid, the app asks `GET /api/link-preview` for the page. The
+  popover shows the site name and the page title. If the owner did not type in
+  the text field, the title fills it. With no answer, the popover shows nothing
+  more, and both buttons still work.
+
+**Link** inserts `[text](url)` in place of the selection, or `<url>` with no
+text. **Card** inserts `<url>` as a new paragraph after the paragraph or code
+block of the cursor, and ignores the text. It does not split a line. A card
+never goes on the title line: above the title, it goes after the title, and in
+a blank pad it goes on line 3, with the cursor on line 1 for the title. The
+site shows a URL alone in its paragraph as a link card. A bare URL must start
+at column 0 and have only plain URL characters, so that GFM links all of it.
+`<url>` is a card when it is a valid http or https URL. `cardUrls` in
+`src/lib/link-cards.ts` holds this rule, and the editor uses the same rule.
+Only `.md` posts get cards.
+
+### Subtitle
+
+The line directly under the title is the subtitle, if it is text. A heading, a
+list item, a quote, a table row, a fence, a rule, a card URL, or a line that
+starts with `!`, `[`, or `<` on that line is body text. A title that is too long
+and goes into the body has no subtitle. A line of more than 200 characters is
+body text, not a subtitle, so that no text is cut. The subtitle loses paired
+`**`, `__`, `*`, `_`, and backtick marks, because `description` is plain
+text.
+
+A fix sets, replaces, or removes `description` to match the pad. A new
+`description` goes directly after `title`. If the post has a `description` that
+is not on one line, the composer cannot fix the post. If the pad has no title
+line, the title and the description stay.
 
 ### Tags
 

@@ -102,8 +102,12 @@ const API_ROUTES: [string, string][] = [
   ["GET", "/api/tags"],
   ["POST", "/api/prove"],
   ["POST", "/api/ship"],
+  ["GET", "/api/link-preview?url=https%3A%2F%2Fexample.com%2F"],
   ["GET", "/api/unknown"],
 ];
+
+const PREVIEWED = "https://example.com/page";
+let previewsAsked: string[] = [];
 
 beforeEach(async () => {
   const pads = createPads(fixture.config);
@@ -111,7 +115,15 @@ beforeEach(async () => {
     pads,
     fetchSite: async () => new Response("", { status: 404 }),
   });
-  server = await createServer(fixture.config, pipeline, pads);
+  previewsAsked = [];
+  server = await createServer(fixture.config, pipeline, pads, {
+    fetchCard: async (url) => {
+      previewsAsked.push(url);
+      return url === PREVIEWED
+        ? { site: "Example", title: "A page", description: "About it" }
+        : undefined;
+    },
+  });
   const answer = await app("/api/pair", {
     method: "POST",
     body: JSON.stringify({ token: TOKEN }),
@@ -339,6 +351,51 @@ describe("prove and ship", () => {
   test("tags come from main", async () => {
     const answer = await app("/api/tags", { headers: paired() });
     expect(await answer.json()).toContain("hello_there");
+  });
+});
+
+describe("link preview", () => {
+  const preview = (url?: string) =>
+    app(
+      url === undefined
+        ? "/api/link-preview"
+        : `/api/link-preview?url=${encodeURIComponent(url)}`,
+      { headers: paired() },
+    );
+
+  test("answers with the card and the normalized URL", async () => {
+    const answer = await preview("HTTPS://Example.com/page");
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({
+      url: PREVIEWED,
+      site: "Example",
+      title: "A page",
+      description: "About it",
+    });
+  });
+
+  test.each([
+    ["no URL", undefined],
+    ["a URL that does not parse", "not a url"],
+    ["a LAN address", "http://192.168.88.16/"],
+    ["localhost", "http://localhost:8444/"],
+    ["another scheme", "file:///etc/passwd"],
+  ])("refuses %s with 400 and no fetch", async (_, url) => {
+    expect((await preview(url)).status).toBe(400);
+    expect(previewsAsked).toEqual([]);
+  });
+
+  test("a page that cannot be read gets 502", async () => {
+    expect((await preview("https://example.com/gone")).status).toBe(502);
+    expect(previewsAsked).toEqual(["https://example.com/gone"]);
+  });
+
+  test("only GET has the route", async () => {
+    const answer = await app(
+      `/api/link-preview?url=${encodeURIComponent(PREVIEWED)}`,
+      json({}),
+    );
+    expect(answer.status).toBe(404);
   });
 });
 

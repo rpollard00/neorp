@@ -17,6 +17,7 @@
   --gutter: 1.25rem;
   --px: 4px;
   --checker-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2' viewBox='0 0 2 2' shape-rendering='crispEdges'><rect width='1' height='1'/><rect x='1' y='1' width='1' height='1'/></svg>");
+  --arrow-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='7' height='7' viewBox='0 0 7 7' shape-rendering='crispEdges'><path d='M2 0h5v1H2zM5 1h2v1H5zM4 2h1v1H4zM6 2h1v3H6zM3 3h1v1H3zM2 4h1v1H2zM1 5h1v1H1zM0 6h1v1H0z'/></svg>");
 }
 
 :root {
@@ -155,6 +156,18 @@ body {
   font-weight: 700;
 }
 
+#editor .cm-subtitle {
+  padding-bottom: 6px;
+  color: var(--muted);
+}
+
+#editor .cm-card {
+  padding: 6px 10px;
+  border: 1px solid var(--text);
+  font: 14px/1.5 var(--mono);
+  word-break: break-all;
+}
+
 #editor .cm-heading {
   font-size: 1.25rem;
   font-weight: 800;
@@ -284,14 +297,15 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 28px;
-  padding-top: 4px;
+  height: 44px;
 }
 
 .tags {
   display: flex;
+  flex: 1;
   gap: 6px;
   min-width: 0;
+  margin: 0 12px;
   overflow: hidden;
 }
 
@@ -311,6 +325,14 @@ body {
   color: var(--muted);
 }
 
+#save {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 #save-beside {
   flex: 0 1 auto;
   min-width: 0;
@@ -320,9 +342,9 @@ body {
 }
 
 .msg {
-  min-height: 28px;
+  min-height: 44px;
   margin: 0;
-  padding-top: 7px;
+  padding-top: 12px;
   font: 14px/1.4 var(--sans);
   overflow-wrap: anywhere;
 }
@@ -340,6 +362,10 @@ body {
 
 .tools {
   display: flex;
+}
+
+.tools > :first-child {
+  justify-content: flex-start;
 }
 
 .btn,
@@ -380,6 +406,10 @@ body {
   text-underline-offset: 4px;
 }
 
+.link:disabled {
+  color: var(--muted);
+}
+
 .link[aria-expanded="true"] {
   background: var(--text);
   color: var(--page);
@@ -400,9 +430,9 @@ body {
 
 .pop {
   position: absolute;
-  right: calc(-1 * max(var(--gutter), var(--safe-right)));
+  right: 0;
   bottom: 100%;
-  left: calc(-1 * max(var(--gutter), var(--safe-left)));
+  left: 0;
   z-index: 2;
   padding: 8px max(var(--gutter), var(--safe-right)) 8px
     max(var(--gutter), var(--safe-left));
@@ -467,6 +497,31 @@ input {
 
 .add input {
   flex: 1;
+}
+
+.link-form {
+  display: grid;
+  gap: 8px;
+}
+
+.link-preview {
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font: 14px/1.4 var(--sans);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-preview .label {
+  margin-right: 6px;
+}
+
+.link-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
 }
 
 input::placeholder {

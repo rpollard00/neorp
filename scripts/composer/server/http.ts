@@ -1,7 +1,18 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord, parsePad, parsePadId, parseSha } from "../protocol";
+import {
+  fetchCardFromWeb,
+  parseFetchableUrl,
+  type FetchCard,
+} from "../../links/meta";
+import {
+  isRecord,
+  parsePad,
+  parsePadId,
+  parseSha,
+  type LinkPreview,
+} from "../protocol";
 import type { Config } from "./config";
 import { log } from "./log";
 import type { Pads } from "./pads";
@@ -70,6 +81,7 @@ export const createServer = async (
   config: Config,
   pipeline: Pipeline,
   pads: Pads,
+  { fetchCard = fetchCardFromWeb }: { fetchCard?: FetchCard } = {},
 ) => {
   const token = (await readFile(config.tokenFile, "utf8")).trim();
   if (!token) throw new Error(`${config.tokenFile} is empty.`);
@@ -115,6 +127,15 @@ export const createServer = async (
     return Response.json(await pipeline.ship({ sha }));
   };
 
+  const linkPreview = async (request: Request) => {
+    const given = new URL(request.url).searchParams.get("url");
+    const url = given === null ? undefined : parseFetchableUrl(given);
+    if (!url) return badRequest();
+    const card = await fetchCard(url.href);
+    if (!card) return plain(502, "The page could not be read.");
+    return Response.json({ url: url.href, ...card } satisfies LinkPreview);
+  };
+
   const api = async ({ request, path }: { request: Request; path: string }) => {
     const { method } = request;
     if (path === "/api/pair") {
@@ -139,6 +160,8 @@ export const createServer = async (
         return prove(request);
       case "POST /api/ship":
         return ship(request);
+      case "GET /api/link-preview":
+        return linkPreview(request);
       default:
         return plain(404, "There is no such route.");
     }

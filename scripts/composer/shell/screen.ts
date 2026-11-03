@@ -22,11 +22,13 @@ export type ShipProblem =
 /** The pad version that a build is for. An answer for another version is old. */
 export type ProofSource = { pad: PadId; rev: number };
 
+export type Popover = "closed" | "tags" | "link";
+
 export type Screen =
   | { kind: "pair"; failure: PairFailure | null }
   | {
       kind: "write";
-      popover: "closed" | "open";
+      popover: Popover;
       problem: WriteProblem | null;
     }
   | { kind: "building"; source: ProofSource }
@@ -55,7 +57,8 @@ export type Event =
   | { kind: "pad-forked" }
   | { kind: "edited" }
   | { kind: "tags-toggled" }
-  | { kind: "tags-closed" }
+  | { kind: "link-toggled" }
+  | { kind: "popover-closed" }
   | { kind: "server-back" }
   | { kind: "prove-started"; source: ProofSource }
   | { kind: "prove-answered"; source: ProofSource; answer: Proved }
@@ -110,6 +113,14 @@ const shipAnswered = (screen: Screen, answer: ShipStatus): Screen => {
   }
 };
 
+const toggled = (
+  screen: Screen,
+  popover: Exclude<Popover, "closed">,
+): Screen =>
+  screen.kind === "write"
+    ? { ...screen, popover: screen.popover === popover ? "closed" : popover }
+    : screen;
+
 const isBuilding = (screen: Screen, source: ProofSource) =>
   screen.kind === "building" &&
   screen.source.pad === source.pad &&
@@ -137,13 +148,10 @@ export const reduce = (screen: Screen, event: Event): Screen => {
         ? { ...screen, problem: null }
         : screen;
     case "tags-toggled":
-      return screen.kind === "write"
-        ? {
-            ...screen,
-            popover: screen.popover === "open" ? "closed" : "open",
-          }
-        : screen;
-    case "tags-closed":
+      return toggled(screen, "tags");
+    case "link-toggled":
+      return toggled(screen, "link");
+    case "popover-closed":
       return screen.kind === "write"
         ? { ...screen, popover: "closed" }
         : screen;
