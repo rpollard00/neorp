@@ -55,7 +55,7 @@ trap cleanup EXIT
 
 [[ $(docker info --format '{{.SecurityOptions}}') == *rootless* ]] || die "This script needs rootless Docker."
 
-docker build -q --platform linux/amd64 -f "$root/scripts/composer/Dockerfile" -t "$image" "$root" >/dev/null
+docker build --progress=plain --platform linux/amd64 -f "$root/scripts/composer/Dockerfile" -t "$image" "$root" >/dev/null
 built=1
 image_bytes=$(docker image inspect "$image" --format '{{.Size}}')
 pass "the image builds: $((image_bytes / 1000000)) MB"
@@ -127,7 +127,7 @@ equal "uid 1001 has no capabilities" "$(as_build sh -c "grep CapEff /proc/self/s
 refused "/app/node_modules does not exist" in_app test -e /app/node_modules
 equal "the image holds no test file" "$(in_app find /app -name '*.test.ts' -o -name fixture.ts -o -name uid-check.ts)" ""
 equal "/app holds only the server files" "$(in_app find /app -type f -not -path '*/shell/dist/*' -not -path '*/composer/server/*' | sort | tr '\n' ' ')" \
-  "/app/scripts/composer/protocol.ts /app/scripts/composer/text.ts /app/scripts/links/fill.ts /app/scripts/links/meta.ts /app/src/lib/link-cards.ts /app/src/lib/post-plain.ts /app/src/site.ts "
+  "/app/scripts/composer/images.ts /app/scripts/composer/protocol.ts /app/scripts/composer/text.ts /app/scripts/links/fill.ts /app/scripts/links/meta.ts /app/src/lib/link-cards.ts /app/src/lib/post-plain.ts /app/src/site.ts "
 equal "bun matches packageManager" "bun@$(in_app bun --version)" "$(jq -r .packageManager "$root/package.json")"
 equal "node matches .node-version" "$(in_app node --version)" "v$(cat "$root/.node-version")"
 in_app sh -c 'lego --version | grep -q "version 5.5.2"' && pass "lego is the pinned version"
@@ -163,10 +163,22 @@ new_pad() {
 prove() { jq -c '{pad: .}' <<<"$1" | curl -sS --max-time 600 "${session[@]}" "${json[@]}" --data-binary @- "$app_url/api/prove"; }
 ship() { jq -nc --arg sha "$1" '{sha: $sha}' | curl -fsS --max-time 60 "${session[@]}" "${json[@]}" --data-binary @- "$app_url/api/ship"; }
 
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z9DwHwAGAAJ/IQJzOwAAAABJRU5ErkJggg==' | base64 -d >"$work/image.png"
+asset_name=$(sha256sum "$work/image.png" | cut -d ' ' -f 1).png
+asset_path=public/post-assets/$asset_name
+asset_url=/post-assets/$asset_name
+equal "the asset API needs a session" "$(curl -sS -o /dev/null -w '%{http_code}' "$app_url/api/assets/$asset_name")" 401
+equal "PUT saves a PNG asset" "$(curl -sS -X PUT "${session[@]}" -H 'content-type: image/png' --data-binary @"$work/image.png" -o /dev/null -w '%{http_code}' "$app_url/api/assets/$asset_name")" 204
+curl -fsS "${session[@]}" "$app_url/api/assets/$asset_name" >"$work/recovered.png"
+cmp -s "$work/image.png" "$work/recovered.png" || die "the asset API changed the PNG bytes"
+pass "GET recovers the PNG bytes"
+
 before=$(git -C "$remote" rev-parse main)
 pad=$(new_pad smoke-pad-one "Smoke post $tag
 
-The body of the smoke post.")
+The body of the smoke post.
+
+![Container smoke PNG]($asset_url)")
 equal "PUT saves a pad" "$(curl -fsS -X PUT "${session[@]}" "${json[@]}" --data-binary "$pad" "$app_url/api/pads/smoke-pad-one" | jq -c .)" '{"rev":1,"same":true}'
 equal "GET reads the pad" "$(curl -fsS "${session[@]}" "$app_url/api/pads" | jq -r '.[0].id')" smoke-pad-one
 
@@ -180,14 +192,24 @@ curl -fsS "${session[@]}" "$page" >"$work/page.html"
 grep -q "The body of the smoke post" "$work/page.html" || die "the proof port does not serve the page"
 grep -q 'name="generator" content="Astro' "$work/page.html" || die "Astro did not make the page"
 pass "the proof port serves the page that Astro built"
+grep -Fq "$asset_url" "$work/page.html" || die "the built post does not reference its image"
+curl -fsS "${session[@]}" "http://127.0.0.1:$proof_port$asset_url" >"$work/proof.png"
+cmp -s "$work/image.png" "$work/proof.png" || die "the proof changed the PNG bytes"
+pass "the proof serves the PNG bytes"
 
 equal "ship pushes" "$(ship "$sha" | jq -r .kind)" pushed
 equal "main is the proved commit" "$(git -C "$remote" rev-parse main)" "$sha"
 equal "main has exactly one new commit" "$(git -C "$remote" rev-list --count "$before..main")" 1
 paths=$(git -C "$remote" diff-tree --no-commit-id --name-only -r main)
-equal "the commit changes one path" "$(wc -l <<<"$paths")" 1
-[[ $paths == src/content/posts/*.md ]] || die "the commit changed $paths"
-pass "the one path is a post: $paths"
+equal "the commit changes exactly two paths" "$(wc -l <<<"$paths")" 2
+post_path=$(grep -E '^src/content/posts/[^/]+\.md$' <<<"$paths") || die "the commit has no post"
+equal "exactly one changed path is a post" "$(wc -l <<<"$post_path")" 1
+grep -Fxq "$asset_path" <<<"$paths" || die "the commit omitted $asset_path"
+git -C "$remote" show "main:$post_path" >"$work/post.md"
+grep -Fq "![Container smoke PNG]($asset_url)" "$work/post.md" || die "the committed post does not reference its image"
+git -C "$remote" show "main:$asset_path" >"$work/committed.png"
+cmp -s "$work/image.png" "$work/committed.png" || die "the commit changed the PNG bytes"
+pass "the commit contains exactly the post and its PNG bytes"
 equal "the next ship call finds the post on the public site" "$(ship "$sha" | jq -r .kind)" live
 
 git -C "$work/seed" pull -q origin main
