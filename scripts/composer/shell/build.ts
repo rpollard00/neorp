@@ -125,7 +125,16 @@ export const buildShell = async (outdir: string) => {
     join(SHELL, "manifest.webmanifest"),
     join(outdir, "manifest.webmanifest"),
   );
-  await copyFile(join(SHELL, "styles.css"), join(outdir, "styles.css"));
+  await writeFile(
+    join(outdir, "styles.css"),
+    [
+      await readFile(join(SHELL, "styles.css"), "utf8"),
+      await readFile(
+        join(SHELL, "../../../src/styles/image-figure.css"),
+        "utf8",
+      ),
+    ].join("\n"),
+  );
   await writeFile(join(outdir, "icon.svg"), iconSvg());
   await writeFile(join(outdir, "apple-touch-icon.png"), iconPng());
 

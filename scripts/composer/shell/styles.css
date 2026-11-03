@@ -531,27 +531,118 @@ input {
 
 .image-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
-#image-preview {
-  display: block;
-  max-width: 100%;
-  max-height: 160px;
-  object-fit: contain;
-  justify-self: center;
+#image-stage {
+  margin-bottom: 12px;
+}
+
+.image-sizing {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.image-sizing legend {
+  margin-bottom: 7px;
+  padding: 0;
+  font: 600 13px/1.4 var(--sans);
+}
+
+.image-sizes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--text);
+}
+
+.image-sizes label {
+  position: relative;
+  min-width: 0;
+}
+
+.image-sizes label + label {
+  border-left: 1px solid var(--text);
+}
+
+.image-sizes input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+}
+
+.image-sizes span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px;
+  cursor: pointer;
+  font: 14px/1.4 var(--sans);
+}
+
+.image-sizes input:checked + span {
+  color: var(--page);
+  background: var(--text);
+  font-weight: 600;
+}
+
+.image-sizes input:checked + span::before {
+  content: "✓";
+}
+
+.image-sizes input:focus-visible + span {
+  outline: 2px solid currentColor;
+  outline-offset: -4px;
+}
+
+.image-size-help {
+  margin: 8px 0 18px;
+  color: var(--muted);
+  font: 13px/1.5 var(--sans);
 }
 
 .image-fields {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
 }
 
 .image-fields label {
   display: grid;
-  gap: 4px;
-  font: 14px/1.4 var(--sans);
+  min-width: 0;
+  gap: 7px;
+  font: 13px/1.4 var(--sans);
+}
+
+.image-frame {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: 8px;
+  font: 13px/1.4 var(--sans);
+}
+
+.image-frame input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--text);
+}
+
+@media (max-width: 480px) {
+  .image-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
 }
 
 #image-message,

@@ -1,4 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import {
+  imageFigureMarkdown,
+  parseImagePresentation,
+} from "../../../src/lib/image-figures";
+import { parseAssetName } from "../images";
 import { markdown } from "@codemirror/lang-markdown";
 import {
   EditorSelection,
@@ -20,6 +25,37 @@ import {
 
 describe("image insertion", () => {
   const image = "![A picture](/post-assets/image.png)";
+  test("figure metadata travels as one anchored insertion with its title slot", () => {
+    const asset = parseAssetName(`${"a".repeat(64)}.png`);
+    const parsed = parseImagePresentation({
+      width: 1200,
+      height: 720,
+      size: "auto",
+      frame: "pixel",
+      alt: '"literal" -- ...',
+      caption: "A caption",
+    });
+    if (!asset || parsed.kind !== "valid")
+      throw new Error("Invalid figure fixture");
+    const source = imageFigureMarkdown({
+      asset,
+      presentation: parsed.presentation,
+    });
+    for (const text of ["", "A title\n\nBody"]) {
+      const state = make(text, 0);
+      const transaction = state.update(
+        imageInsert(state, { markdown: source, anchor: state.selection.main }),
+      );
+      expect(transaction.state.doc.toString()).toContain(`\n\n${source}`);
+      expect(transaction.state.doc.line(1).text).toBe(text ? "A title" : "");
+      expect(
+        transaction.changes
+          .invert(state.doc)
+          .apply(transaction.newDoc)
+          .toString(),
+      ).toBe(text);
+    }
+  });
   test("a blank pad leaves the title line available", () => {
     const state = make("");
     const next = state.update(

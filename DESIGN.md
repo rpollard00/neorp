@@ -144,6 +144,27 @@ Rules:
 
 ## Composition
 
+### Image figures
+
+Status: **provisional**. The user approved the image-frame mockup and requested
+implementation on 2026-11-03. Rendered production acceptance is pending.
+
+- Pasted images start at Auto. Compact reduces emphasis; Auto limits width and
+  height; Wide uses the available reading column. Display size does not change
+  the image file's resolution. Preserve aspect ratio and the full image.
+- A framed image has one square outer rule and the link card's offset checker
+  shadow. An inset mat separates image pixels from the rule. Media edges use
+  their own theme colours rather than body-text colours, so pale images do not
+  merge with a bright border in dark mode.
+- The optional caption belongs inside the same frame, below and aligned with
+  the image. Use secondary text and spacing to group it with the image. Do not
+  add a caption divider. An absent caption leaves an even mat with no empty
+  caption space. Caption text and accessibility alt text are separate values.
+- Apply the figure consistently in the composer preview and article. Preserve
+  existing image content and link-card behaviour outside this change.
+
+### Page structure
+
 - Home: kicker label, title, intro, then the newest post as a cover plate,
   then a numbered list of earlier posts.
 - Article: wide plate (wider than the text column on desktop), meta and tags,

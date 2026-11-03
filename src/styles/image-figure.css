@@ -1,0 +1,79 @@
+.image-stage {
+  --media-edge: #655d6c;
+  --media-mat: #e7e0d4;
+  --media-caption: #59525e;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  padding: 0 6px 6px 0;
+}
+
+@supports (color: light-dark(white, black)) {
+  .image-stage {
+    --media-edge: light-dark(#655d6c, #79727f);
+    --media-mat: light-dark(#e7e0d4, #292832);
+    --media-caption: light-dark(#59525e, #c3bfcb);
+  }
+}
+
+.image-stage > .image-figure {
+  box-sizing: border-box;
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  min-width: 0;
+  max-width: 100%;
+  width: calc(var(--image-cap) + 28px);
+  margin: 0;
+  padding: 14px;
+}
+
+.image-figure::before {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  inset: 6px -6px -6px 6px;
+  background: var(--media-edge);
+  -webkit-mask: var(--checker-mask) 0 0 / 4px 4px repeat;
+  mask: var(--checker-mask) 0 0 / 4px 4px repeat;
+}
+
+.image-figure::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 2px solid var(--media-edge);
+  background: var(--media-mat);
+}
+
+.image-stage > .image-figure > img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  margin: 0;
+}
+
+.image-figure > .image-caption {
+  margin: 8px 0 0;
+  color: var(--media-caption);
+  font: 13px/1.5 var(--sans);
+  overflow-wrap: anywhere;
+}
+
+.image-stage > .image-figure[data-frame="bare"] {
+  width: var(--image-cap);
+  padding: 0;
+}
+
+.image-figure[data-frame="bare"]::before,
+.image-figure[data-frame="bare"]::after {
+  display: none;
+}
+
+.prose > .image-stage {
+  margin-bottom: 1.25rem;
+}

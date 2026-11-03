@@ -72,22 +72,58 @@
           hidden
         >
           <form class="image-form" id="image-form">
-            <img id="image-preview" alt="Pasted image preview" hidden />
-            <div class="image-fields" id="image-fields" hidden>
-              <label for="image-width"
-                >Width (px)<input
-                  id="image-width"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  required
-              /></label>
-              <label for="image-alt"
-                >Alt text (optional)<input
-                  id="image-alt"
-                  type="text"
-                  autocomplete="off"
-              /></label>
+            <div class="image-stage" id="image-stage" hidden>
+              <figure class="image-figure" id="image-figure" data-frame="pixel">
+                <img id="image-preview" alt="" />
+              </figure>
+            </div>
+            <div id="image-fields" hidden>
+              <fieldset class="image-sizing" aria-describedby="image-size-help">
+                <legend>Image size</legend>
+                <div class="image-sizes">
+                  <label
+                    ><input
+                      type="radio"
+                      name="image-size"
+                      value="compact"
+                    /><span>Compact</span></label
+                  >
+                  <label
+                    ><input
+                      type="radio"
+                      name="image-size"
+                      value="auto"
+                      checked
+                    /><span>Auto</span></label
+                  >
+                  <label
+                    ><input type="radio" name="image-size" value="wide" /><span
+                      >Wide</span
+                    ></label
+                  >
+                </div>
+              </fieldset>
+              <p class="image-size-help" id="image-size-help">
+                Fits the space and keeps tall images shorter.
+              </p>
+              <div class="image-fields">
+                <label for="image-alt"
+                  >Alt text (optional)<input
+                    id="image-alt"
+                    type="text"
+                    autocomplete="off"
+                /></label>
+                <label for="image-caption"
+                  >Caption (optional)<input
+                    id="image-caption"
+                    type="text"
+                    autocomplete="off"
+                /></label>
+              </div>
+              <label class="image-frame"
+                ><input id="image-frame" type="checkbox" checked />Pixel
+                frame</label
+              >
             </div>
             <p id="image-message" role="status"></p>
             <div class="link-actions">

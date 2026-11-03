@@ -24,6 +24,11 @@ import {
 } from "./store";
 import { createImageLibrary, type ImageSync } from "./images";
 import { imageMarkdown, type AssetName } from "../images";
+import {
+  imageFigureMarkdown,
+  parseImagePresentation,
+} from "../../../src/lib/image-figures";
+import { parseAssetName } from "../images";
 import { PNG_BYTES } from "../images.fixture";
 
 const SHA = "b".repeat(40) as Sha;
@@ -375,6 +380,26 @@ describe("the journal", () => {
     first.store.edit("Kept");
     const second = setup({ handler: never, journal });
     expect(second.store.current().text).toBe("Kept");
+    expect(second.store.current().id).toBe(first.store.current().id);
+  });
+
+  test("figure presentation survives the local journal and a fresh store", () => {
+    const asset = parseAssetName(`${"a".repeat(64)}.png`);
+    const parsed = parseImagePresentation({
+      width: 600,
+      height: 960,
+      size: "compact",
+      frame: "bare",
+      alt: "Independent alt",
+      caption: "Independent caption",
+    });
+    if (!asset || parsed.kind !== "valid") throw new Error("Invalid fixture");
+    const text = `Figure draft\n\n${imageFigureMarkdown({ asset, presentation: parsed.presentation })}`;
+    const journal = makeJournal();
+    const first = setup({ handler: never, journal });
+    first.store.edit(text);
+    const second = setup({ handler: never, journal });
+    expect(second.store.current().text).toBe(text);
     expect(second.store.current().id).toBe(first.store.current().id);
   });
 

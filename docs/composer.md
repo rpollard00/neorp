@@ -217,44 +217,74 @@ line, the title and the description stay.
 
 ### Images
 
-Paste one PNG, JPEG, or WebP image into the editor. The image panel shows a
-preview, **Width (px)**, and **Alt text (optional)**. **Insert** resizes the
-source pixels and keeps the proportions. It never enlarges the image. The
-default longest edge is at most 1600 px. **Cancel** leaves the text unchanged.
-If the clipboard has several images, the panel asks for one image at a time
-and inserts none. Text-only paste keeps its normal behavior.
+Paste one PNG, JPEG, or WebP image into the editor. **Auto** and **Pixel frame**
+are selected initially. **Compact** fits within 240 × 180 px. **Auto** fits within
+480 × 320 px. **Wide** uses the available column, up to the original image size.
+All presets preserve proportions and the full image. Display size does not
+change source pixels. **Cancel** leaves the text unchanged.
 
-The input and saved image limits are 10 MiB, 12000 px per edge, and 40 million
-pixels. The browser opens and encodes the image before insertion. Decode,
-resize, storage, and upload failures appear in the panel or the save bar.
+**Alt text** describes the image for accessibility. The optional **Caption** is
+separate plain text inside the frame. A blank caption removes its space.
+The frame uses a 12 px mat, a 2 px rule, and a 6 px checker shadow. Clear
+**Pixel frame** for a bare image. The paste preview and article share these styles.
+
+If the clipboard has several images, the panel asks for one image at a time
+and inserts none. Text-only paste keeps its normal behavior. The input limits
+remain 10 MiB, 12000 px per edge, and 40 million pixels. The browser opens the
+image and validates its original bytes before insertion. Decode, validation,
+storage, and upload failures remain recoverable. PNG payloads with invalid or
+trailing IDAT data are refused, including through paste.
+
 The app keeps the paste position through edits. Opening another pad cancels
 the pending paste. An image-first pad keeps the image in the body and uses
 the existing `Note <day>` title until the owner adds a title.
 
-IndexedDB keeps the image bytes. The text journal keeps ordinary Markdown:
-`![alt text](/post-assets/<sha256>.png)`. A completed IndexedDB transaction
-comes before the Markdown insertion. Existing text drafts need no migration.
-Unused image bytes stay in storage to preserve undo and older drafts.
+IndexedDB keeps the original bytes, including orientation, animation, and
+embedded metadata. PNG, JPEG, and WebP retain their formats. A completed
+IndexedDB transaction comes before insertion. Unused bytes stay in storage
+to preserve undo and older drafts.
 
-The app derives image work from the text, independently of text acknowledgments.
+The text journal stores a normal Markdown image followed by a versioned comment
+on the same physical line, in its own paragraph:
+
+```md
+![Alt text](/post-assets/<sha256>.png)<!--neorp-figure:1 {"size":"auto","frame":"pixel","width":1200,"height":720,"caption":"Sunday light."}-->
+```
+
+The image owns the URL and alt text. The comment owns the presentation for that
+occurrence. Its width and height record the browser's oriented dimensions.
+They are not display-size controls. Different occurrences of one asset can have
+different captions and presets. Existing drafts need no migration.
+
+After insertion, edit the Markdown source to change alt text, caption, size, or
+frame. There is no post-insertion image dialog. Invalid, incomplete, misplaced,
+or unknown-version markers stop proof with a source location. Repair the marker
+beside its image, or remove the comment to restore an ordinary Markdown image.
+The app retains the draft source. Damage that removes the recognizable
+`<!--neorp-figure:` prefix cannot be identified as figure metadata.
+
+The extension supports `.md` only. Existing Markdown images, MDX images, and
+link cards keep their behavior. Other Markdown renderers show the image and
+hide the comment, so they do not show the caption.
+
+Generated source escapes punctuation and markup-like field text. Keep reserved
+paths inside fields escaped when editing source. For example, write
+`&#47;post-assets&#47;example` in alt text or `\u002fpost-assets\u002fexample`
+in the JSON caption. The actual image URL stays literal. Reserved `/post-assets/`
+URLs also count in HTML, reference links, and code examples. Each must use a
+valid hash filename and resolve before proof. This scanner policy is unchanged.
+
+The app derives image work from text, independently of text acknowledgments.
 It retries failed uploads on sync and refuses Preview until the captured text's
 images reach the server. **Saved** requires both text and image saves. A text
 save still proceeds after an image upload failure, so the server retains the text.
 
-The authenticated asset API checks the filename hash, file signature, dimensions,
-and image byte limit. JSON requests retain their separate 256 KiB limit.
-The asset API accepts composer-encoded images. The paste panel re-encodes source
-images before upload. PNG sources with trailing IDAT padding work through the
-paste panel, but direct uploads of those source bytes are refused.
-The server can recover an image from staging or from `main`. Prove independently
-resolves each reserved image URL from staging or the parent commit. It adds
-new bytes under `public/post-assets/` in the same commit as the post, then checks
+The authenticated asset API checks the filename hash, signature, dimensions,
+byte limit, and PNG payload. JSON requests retain their separate 256 KiB limit.
+The server recovers assets from staging or `main`. Prove independently resolves
+each reserved image URL and commits new bytes with the post. It then checks
 that the build copied those bytes unchanged. Static URLs stay the same in
 drafts, previews, revisions, and published posts.
-
-Reserved `/post-assets/` URLs also count in HTML, reference links, and code
-examples. Each must use a valid hash filename and resolve before proof. Images
-outside this reserved path keep the site's existing Markdown behavior.
 
 ### Tags
 

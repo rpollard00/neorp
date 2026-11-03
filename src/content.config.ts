@@ -7,6 +7,8 @@ const posts = defineCollection({
   loader: glob({
     pattern: "**/*.{md,mdx}",
     base: `./${POSTS_DIR}`,
+    // Eager Markdown rendering logs errors but can build an empty article.
+    deferRender: true,
     generateId: ({ entry }) => slugFromPath(entry),
   }),
   schema: postSchema,

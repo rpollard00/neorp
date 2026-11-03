@@ -35,10 +35,15 @@ test("the service worker does not skip the waiting phase", async () => {
   expect(worker).not.toContain("skipWaiting");
 });
 
-test("the styles include the band mask", async () => {
+test("the styles include the band mask and exact shared figure stylesheet", async () => {
   await buildShell(outdir);
   const styles = await readFile(join(outdir, "styles.css"), "utf8");
   expect(styles).toContain("--band-mask");
+  const shared = await readFile(
+    join(import.meta.dir, "../../../src/styles/image-figure.css"),
+    "utf8",
+  );
+  expect(styles.endsWith(shared)).toBe(true);
 });
 
 test("the apple-touch-icon is an opaque 180px PNG", async () => {

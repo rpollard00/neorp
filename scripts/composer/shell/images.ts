@@ -1,7 +1,8 @@
 import {
   assetNameFor,
   scanReservedAssetUrls,
-  DEFAULT_IMAGE_EDGE,
+  IMAGE_EDGE_LIMIT,
+  IMAGE_PIXEL_LIMIT,
   IMAGE_BYTE_LIMIT,
   imageInfo,
   validateAsset,
@@ -29,7 +30,6 @@ export type PastedImage = {
   url: string;
   width: number;
   height: number;
-  defaultWidth: number;
   release: () => void;
 };
 
@@ -97,11 +97,13 @@ export const createImageLibrary = ({
         "The image format, size, or dimensions are not supported.",
       );
     const name = await assetNameFor(bytes, info.ext);
+    const asset = await validateAsset(name, bytes);
+    if (!asset) throw new Error("The image data is not valid. Copy it again.");
     await blobs.put(
       name,
       new Blob([new Uint8Array(bytes)], { type: info.type }),
     );
-    return { name, bytes, info };
+    return asset;
   };
   const pending: ImageSync["pending"] = (text) => {
     const references = scanReservedAssetUrls(text);
@@ -196,18 +198,6 @@ export const createImageLibrary = ({
   return { save, sync, pending };
 };
 
-export const resizedDimensions = (
-  source: { width: number; height: number },
-  width: number,
-) => {
-  if (!Number.isInteger(width) || width < 1 || width > source.width)
-    throw new Error(`Enter a width from 1 to ${source.width} px.`);
-  return {
-    width,
-    height: Math.max(1, Math.round((source.height * width) / source.width)),
-  };
-};
-
 export const decodePastedImage = async (blob: Blob): Promise<PastedImage> => {
   if (blob.size > IMAGE_BYTE_LIMIT)
     throw new Error("The image is larger than 10 MiB. Copy a smaller image.");
@@ -216,61 +206,30 @@ export const decodePastedImage = async (blob: Blob): Promise<PastedImage> => {
     throw new Error(
       "Use a PNG, JPEG, or WebP image, up to 10 MiB and 40 million pixels.",
     );
-  const url = URL.createObjectURL(blob);
+  const original = new Blob([blob], { type: info.type });
+  const url = URL.createObjectURL(original);
   const image = new Image();
   image.src = url;
   try {
     await image.decode();
     const { naturalWidth: width, naturalHeight: height } = image;
-    if (!width || !height) throw new Error("The image has no pixels.");
-    const defaultWidth = Math.max(
-      1,
-      Math.round(
-        width * Math.min(1, DEFAULT_IMAGE_EDGE / Math.max(width, height)),
-      ),
-    );
+    if (
+      !width ||
+      !height ||
+      width > IMAGE_EDGE_LIMIT ||
+      height > IMAGE_EDGE_LIMIT ||
+      width * height > IMAGE_PIXEL_LIMIT
+    )
+      throw new Error("The image dimensions are not supported.");
     return {
-      blob,
+      blob: original,
       url,
       width,
       height,
-      defaultWidth,
       release: () => URL.revokeObjectURL(url),
     };
   } catch {
     URL.revokeObjectURL(url);
     throw new Error("The image could not be opened. Copy it again.");
   }
-};
-
-export const encodePastedImage = async (
-  source: PastedImage,
-  width: number,
-): Promise<Uint8Array> => {
-  const size = resizedDimensions(source, width);
-  const image = new Image();
-  image.src = source.url;
-  await image.decode();
-  const canvas = document.createElement("canvas");
-  canvas.width = size.width;
-  canvas.height = size.height;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("This browser cannot resize the image.");
-  context.drawImage(image, 0, 0, size.width, size.height);
-  const type = source.blob.type === "image/jpeg" ? "image/jpeg" : "image/png";
-  const blob = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(
-      (value) =>
-        value
-          ? resolve(value)
-          : reject(new Error("The image could not be resized.")),
-      type,
-      0.9,
-    ),
-  );
-  if (blob.size > IMAGE_BYTE_LIMIT)
-    throw new Error(
-      "The resized image is larger than 10 MiB. Choose a smaller width.",
-    );
-  return new Uint8Array(await blob.arrayBuffer());
 };

@@ -15,7 +15,6 @@ export type AssetReferences =
 export const IMAGE_BYTE_LIMIT = 10 * 1024 * 1024;
 export const IMAGE_EDGE_LIMIT = 12000;
 export const IMAGE_PIXEL_LIMIT = 40_000_000;
-export const DEFAULT_IMAGE_EDGE = 1600;
 export const ASSET_PREFIX = "/post-assets/";
 export const parseAssetName = (value: unknown): AssetName | undefined =>
   typeof value === "string" && /^[a-f0-9]{64}\.(?:png|jpg|webp)$/.test(value)

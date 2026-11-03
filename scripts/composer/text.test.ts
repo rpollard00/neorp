@@ -1,4 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import {
+  imageFigureMarkdown,
+  parseImagePresentation,
+} from "../../src/lib/image-figures";
+import { parseAssetName } from "./images";
 import { parse } from "yaml";
 import {
   newPostFile,
@@ -21,6 +26,36 @@ test("an image-first pad keeps the full image in the body and uses the Note titl
   expect(file?.title).toBe("Note 2026-11-02");
   expect(file?.source).toContain(`\n\n${image}\n\nAfter the image.\n`);
   expect(file?.source).not.toContain("description:");
+});
+
+test("figure source survives image-first, titled and revised post serialization", () => {
+  const asset = parseAssetName(`${"a".repeat(64)}.png`);
+  const parsed = parseImagePresentation({
+    width: 600,
+    height: 960,
+    size: "compact",
+    frame: "pixel",
+    alt: "Alt",
+    caption: "Caption /post-assets/not-an-asset -- ...",
+  });
+  if (!asset || parsed.kind !== "valid") throw new Error("Invalid fixture");
+  const line = imageFigureMarkdown({
+    asset,
+    presentation: parsed.presentation,
+  });
+  for (const text of [line, `Title\n\n${line}`]) {
+    const file = newPostFile({ text, tags: [], day: "2026-11-02", taken: [] });
+    if (!file) throw new Error("Missing post");
+    expect(file.title).toBe(text === line ? "Note 2026-11-02" : "Title");
+    expect(file.source).toContain(line);
+    expect(
+      revisedPostFile({
+        current: file.source,
+        text: `Changed\n\n${line}`,
+        tags: [],
+      })?.source,
+    ).toContain(line);
+  }
 });
 
 const DAY = "2026-10-31";

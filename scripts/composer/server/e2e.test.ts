@@ -9,7 +9,12 @@ import { createServer } from "./http";
 import { createPads } from "./pads";
 import { createPipeline } from "./pipeline";
 import { assetNameFor, assetPath, assetUrl, imageMarkdown } from "../images";
+import {
+  imageFigureMarkdown,
+  parseImagePresentation,
+} from "../../../src/lib/image-figures";
 import { PNG_BYTES } from "../images.fixture";
+import { refusalNotice } from "../shell/screen";
 import { createRepo } from "./git";
 
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -32,7 +37,7 @@ describe("the real site", () => {
   });
 
   test.skipIf(!ENABLED)(
-    "a proof of a clone of this repo renders the rule and the code block",
+    "a real proof renders figures and legacy content, and rejects damaged figure source",
     async () => {
       const dir = await mkdtemp(join(tmpdir(), "composer-e2e-"));
       made.push(dir);
@@ -81,8 +86,22 @@ describe("the real site", () => {
           },
         );
         expect(upload.status).toBe(204);
+        const presentation = parseImagePresentation({
+          width: 1,
+          height: 1,
+          size: "auto",
+          frame: "pixel",
+          alt: '"Literal" -- ... &amp;',
+          caption: "A separate <caption> /post-assets/not-an-asset",
+        });
+        if (presentation.kind !== "valid")
+          throw new Error(presentation.message);
+        const figure = imageFigureMarkdown({
+          asset: imageName,
+          presentation: presentation.presentation,
+        });
         const pad = makePad({
-          text: `A real proof\n\nA line of text\n---\nAnother line\n\n\`\`\`sh\necho “double” ‘single’\n\`\`\`\n\n${imageMarkdown(imageName, "A pasted pixel")}\n`,
+          text: `A real proof\n\nA line of text\n---\nAnother line\n\n\`\`\`sh\necho “double” ‘single’\n\`\`\`\n\n${imageMarkdown(imageName, "A pasted pixel")}\n\n${figure}\n`,
           tags: ["e2e-tag"],
         });
         const started = performance.now();
@@ -110,6 +129,13 @@ describe("the real site", () => {
         expect(html).not.toMatch(/<h\d[^>]*>A line of text/);
         expect(html).toContain("tokyo-night");
         expect(html).toContain(assetUrl(imageName));
+        expect(html).toContain('class="image-figure" data-frame="pixel"');
+        expect(html).toContain('style="--image-cap:1px"');
+        expect(html).toContain(
+          "A separate &#60;caption&#62; /post-assets/not-an-asset",
+        );
+        expect(html).toContain('alt="&#34;Literal&#34; -- ... &#38;amp;"');
+        expect(html).not.toContain("<!--neorp-figure:");
         const image = await fetch(
           `http://127.0.0.1:${server.proofPort}${assetUrl(imageName)}`,
           { headers: { Host: PROOF_HOST, cookie: cookie ?? "" } },
@@ -144,6 +170,41 @@ describe("the real site", () => {
         expect(fingerprint).toContain("tokyo-night");
         expect(fingerprint).not.toContain("<footer");
         expect(fingerprint).not.toContain("post-nav");
+        for (const [index, { name, source }] of [
+          {
+            name: "direct unfinished marker",
+            source: `${pad.text}\n\n${figure}`.replace("-->", ""),
+          },
+          {
+            name: "unfinished marker in emphasis",
+            source: `${pad.text}\n\n${figure.replace("<!--", " *<!--").replace("-->", "*")}`,
+          },
+          {
+            name: "unfinished marker in image heading",
+            source: `${pad.text}\n\n## ${figure.replace("-->", "")}`,
+          },
+        ].entries()) {
+          const broken = { ...pad, rev: pad.rev + index + 1, text: source };
+          const refused = await pipeline.prove({ pad: broken });
+          expect(refused).toMatchObject({
+            kind: "refused",
+            why: { kind: "build-failed" },
+          });
+          if (refused.kind !== "refused" || refused.why.kind !== "build-failed")
+            throw new Error("Expected a figure repair error");
+          expect(refused.why.tail).toContain("Image figure at");
+          expect(refused.why.tail).toContain("Repair the marker");
+          expect(refusalNotice(refused.why).text).toContain(
+            "Repair the marker",
+          );
+          expect(refusalNotice(refused.why).text).toContain("Image figure at");
+          expect(
+            (await pads.list()).find((saved) => saved.id === pad.id)?.text,
+          ).toBe(broken.text);
+          process.stdout.write(
+            `${JSON.stringify({ event: "e2e-refused", name })}\n`,
+          );
+        }
       } finally {
         await server.stop();
         await pipeline.close();

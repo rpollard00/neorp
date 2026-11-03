@@ -5,6 +5,7 @@ import { defineConfig } from "astro/config";
 import mdx from "@astrojs/mdx";
 import { satteri } from "@astrojs/markdown-satteri";
 import { LINK_CARDS_PATH, linkCardsPlugin } from "./src/lib/link-cards.ts";
+import { imageFiguresPlugin } from "./src/lib/image-figures-plugin.ts";
 import { SITE } from "./src/site.ts";
 
 /** Read on each compile, so `astro dev` sees new cards. @returns {import("./src/lib/link-cards.ts").LinkCards} */
@@ -17,7 +18,10 @@ export default defineConfig({
   integrations: [mdx()],
   markdown: {
     processor: satteri({
-      mdastPlugins: [() => linkCardsPlugin({ cards: readLinkCards() })],
+      mdastPlugins: [
+        imageFiguresPlugin,
+        () => linkCardsPlugin({ cards: readLinkCards() }),
+      ],
     }),
     shikiConfig: {
       theme: "tokyo-night",

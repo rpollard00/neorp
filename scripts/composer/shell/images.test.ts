@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
 import { assetNameFor, imageMarkdown, type AssetName } from "../images";
-import { PNG_BYTES } from "../images.fixture";
 import {
-  createImageLibrary,
-  resizedDimensions,
-  type AssetBlobs,
-} from "./images";
+  PNG_BYTES,
+  JPEG_BYTES,
+  WEBP_BYTES,
+  pngWithIdat,
+} from "../images.fixture";
+import { createImageLibrary, type AssetBlobs } from "./images";
 
 const memoryBlobs = () => {
   const data = new Map<AssetName, Blob>();
@@ -18,19 +19,48 @@ const memoryBlobs = () => {
   return { blobs, data };
 };
 
-test("resize preserves proportions and cannot upscale", () => {
-  expect(resizedDimensions({ width: 400, height: 300 }, 200)).toEqual({
-    width: 200,
-    height: 150,
+test.each([
+  ["PNG", PNG_BYTES, "png"],
+  ["JPEG", JPEG_BYTES, "jpg"],
+  ["WebP", WEBP_BYTES, "webp"],
+] as const)(
+  "saves and uploads original %s bytes without recoding",
+  async (_, bytes, ext) => {
+    const { blobs, data } = memoryBlobs();
+    const library = createImageLibrary({
+      blobs,
+      fetch: async (_url, init) => {
+        expect(init.body).toEqual(bytes);
+        return new Response(null, { status: 204 });
+      },
+    });
+    const asset = await library.save(bytes);
+    expect(asset.name).toBe(await assetNameFor(bytes, ext));
+    expect(asset.bytes).toEqual(bytes);
+    const stored = data.get(asset.name);
+    if (!stored) throw new Error("Missing stored asset");
+    expect(new Uint8Array(await stored.arrayBuffer())).toEqual(bytes);
+    expect(await library.sync(imageMarkdown(asset.name, "original"))).toEqual({
+      kind: "saved",
+    });
+  },
+);
+
+test("valid headers with corrupt PNG pixels fail before durable storage", async () => {
+  let puts = 0;
+  const library = createImageLibrary({
+    blobs: {
+      get: async () => undefined,
+      put: async () => {
+        puts++;
+      },
+    },
+    fetch,
   });
-  expect(resizedDimensions({ width: 1, height: 100 }, 1)).toEqual({
-    width: 1,
-    height: 100,
-  });
-  for (const width of [0, -1, 401, 0.5, NaN])
-    expect(() =>
-      resizedDimensions({ width: 400, height: 300 }, width),
-    ).toThrow();
+  await expect(
+    library.save(pngWithIdat({ idat: [new Uint8Array(13)] })),
+  ).rejects.toThrow("The image data is not valid");
+  expect(puts).toBe(0);
 });
 
 test("insertion awaits durable blob storage and a new library recovers the same bytes", async () => {

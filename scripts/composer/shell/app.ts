@@ -2,12 +2,15 @@ import type { LinkPreview, Pad, Sha } from "../protocol";
 import { parsePadId } from "../protocol";
 import { webUrl } from "../text";
 import { createEditor } from "./editor";
-import { imageMarkdown } from "../images";
+import {
+  imageFigureMarkdown,
+  imageFigureView,
+  parseImagePresentation,
+  type ImagePresentation,
+} from "../../../src/lib/image-figures";
 import {
   createImageLibrary,
   decodePastedImage,
-  encodePastedImage,
-  resizedDimensions,
   type PastedImage,
 } from "./images";
 import {
@@ -108,7 +111,14 @@ const imagePop = required("image-pop");
 const imageForm = elementOf("image-form", HTMLFormElement);
 const imagePreview = elementOf("image-preview", HTMLImageElement);
 const imageFields = required("image-fields");
-const imageWidth = elementOf("image-width", HTMLInputElement);
+const imageStage = required("image-stage");
+const imageFigure = required("image-figure");
+const imageSizes = [
+  ...document.querySelectorAll<HTMLInputElement>('input[name="image-size"]'),
+];
+const imageSizeHelp = required("image-size-help");
+const imageCaption = elementOf("image-caption", HTMLInputElement);
+const imageFrame = elementOf("image-frame", HTMLInputElement);
 const imageAlt = elementOf("image-alt", HTMLInputElement);
 const imageMessage = required("image-message");
 const imageInsertButton = elementOf("image-insert", HTMLButtonElement);
@@ -118,8 +128,19 @@ const imageSaveProblem = required("image-save-problem");
 type ImagePasteState =
   | { kind: "closed" }
   | { kind: "loading"; token: symbol }
-  | { kind: "ready"; token: symbol; image: PastedImage; problem: string }
-  | { kind: "saving"; token: symbol; image: PastedImage }
+  | {
+      kind: "ready";
+      token: symbol;
+      image: PastedImage;
+      fields: ReturnType<typeof parseImagePresentation>;
+      problem: string;
+    }
+  | {
+      kind: "saving";
+      token: symbol;
+      image: PastedImage;
+      presentation: ImagePresentation;
+    }
   | { kind: "failed"; token: symbol; message: string };
 let imagePaste: ImagePasteState = { kind: "closed" };
 const ownsImagePaste = (token: symbol) =>
@@ -196,10 +217,9 @@ const imagePasteMessage = (state: ImagePasteState): string => {
     case "failed":
       return state.message;
     case "ready":
-      return (
-        state.problem ||
-        `${state.image.width} × ${state.image.height} px. The saved image keeps its proportions.`
-      );
+      return state.fields.kind === "invalid"
+        ? state.fields.message
+        : state.problem;
     default: {
       const exhaustive: never = state;
       return exhaustive;
@@ -207,17 +227,59 @@ const imagePasteMessage = (state: ImagePasteState): string => {
   }
 };
 
+const readImageFields = (image: PastedImage) =>
+  parseImagePresentation({
+    width: image.width,
+    height: image.height,
+    size: imageSizes.find((input) => input.checked)?.value,
+    frame: imageFrame.checked ? "pixel" : "bare",
+    alt: imageAlt.value,
+    caption: imageCaption.value,
+  });
+
 const renderImagePaste = () => {
   const state = imagePaste;
   imagePop.hidden = state.kind === "closed";
   const hasImage = state.kind === "ready" || state.kind === "saving";
-  imagePreview.hidden = !hasImage;
+  imageStage.hidden = !hasImage;
   imageFields.hidden = !hasImage;
-  imageInsertButton.disabled = state.kind !== "ready";
-  imageWidth.disabled = imageAlt.disabled = state.kind === "saving";
+  imageInsertButton.disabled =
+    state.kind !== "ready" || state.fields.kind === "invalid";
+  for (const input of [...imageSizes, imageAlt, imageCaption, imageFrame])
+    input.disabled = state.kind === "saving";
   imageMessage.textContent = imagePasteMessage(state);
-  if (hasImage) imagePreview.src = state.image.url;
-  else imagePreview.removeAttribute("src");
+  imageMessage.hidden = imageMessage.textContent === "";
+  if (!hasImage) {
+    imagePreview.removeAttribute("src");
+    return;
+  }
+  imagePreview.src = state.image.url;
+  const presentation =
+    state.kind === "saving"
+      ? state.presentation
+      : state.fields.kind === "valid"
+        ? state.fields.presentation
+        : null;
+  if (!presentation) return;
+  const view = imageFigureView(presentation);
+  imageFigure.dataset.frame = view.frame;
+  imageFigure.style.setProperty("--image-cap", `${view.imageMaxWidthPx}px`);
+  imagePreview.width = view.width;
+  imagePreview.height = view.height;
+  imagePreview.alt = view.alt;
+  const caption = imageFigure.querySelector("figcaption");
+  if (view.caption === null) caption?.remove();
+  else {
+    const node = caption ?? document.createElement("figcaption");
+    node.className = "image-caption";
+    node.textContent = view.caption;
+    if (!caption) imageFigure.append(node);
+  }
+  imageSizeHelp.textContent = {
+    compact: "A smaller image that leaves more room for the text.",
+    auto: "Fits the space and keeps tall images shorter.",
+    wide: "Uses the available width, up to the original image size.",
+  }[view.size];
 };
 
 const closeImagePaste = (clearAnchor = true) => {
@@ -233,6 +295,9 @@ const openImagePaste = async (files: File[]) => {
   closePopover();
   const token = Symbol();
   imageAlt.value = "";
+  imageCaption.value = "";
+  imageFrame.checked = true;
+  for (const input of imageSizes) input.checked = input.value === "auto";
   imagePaste = { kind: "loading", token };
   renderImagePaste();
   const [file] = files;
@@ -252,11 +317,15 @@ const openImagePaste = async (files: File[]) => {
       image.release();
       return;
     }
-    imagePaste = { kind: "ready", token, image, problem: "" };
-    imageWidth.max = String(image.width);
-    imageWidth.value = String(image.defaultWidth);
+    imagePaste = {
+      kind: "ready",
+      token,
+      image,
+      fields: readImageFields(image),
+      problem: "",
+    };
     renderImagePaste();
-    imageWidth.focus();
+    imageSizes.find((input) => input.checked)?.focus();
   } catch (error) {
     if (!ownsImagePaste(token)) return;
     imagePaste = {
@@ -275,14 +344,28 @@ const openImagePaste = async (files: File[]) => {
 const insertPastedImage = async () => {
   if (imagePaste.kind !== "ready") return;
   const { token, image } = imagePaste;
-  const alt = imageAlt.value;
-  imagePaste = { kind: "saving", token, image };
+  const fields = readImageFields(image);
+  if (fields.kind === "invalid") {
+    imagePaste = { ...imagePaste, fields };
+    renderImagePaste();
+    return;
+  }
+  const { presentation } = fields;
+  imagePaste = { kind: "saving", token, image, presentation };
   renderImagePaste();
   try {
-    const bytes = await encodePastedImage(image, Number(imageWidth.value));
+    const bytes = new Uint8Array(await image.blob.arrayBuffer());
     const asset = await images.save(bytes);
     if (imagePaste.kind !== "saving" || imagePaste.token !== token) return;
-    editor.insertImage(imageMarkdown(asset.name, alt));
+    if (
+      !editor.insertImage(
+        imageFigureMarkdown({ asset: asset.name, presentation }),
+      )
+    ) {
+      closeImagePaste();
+      editor.focus();
+      return;
+    }
     closeImagePaste();
   } catch (error) {
     if (imagePaste.kind !== "saving" || imagePaste.token !== token) return;
@@ -290,6 +373,7 @@ const insertPastedImage = async () => {
       kind: "ready",
       token,
       image,
+      fields,
       problem:
         error instanceof Error
           ? error.message
@@ -783,20 +867,14 @@ const wire = () => {
     closeImagePaste();
     editor.focus();
   });
-  imageWidth.addEventListener("input", () => {
+  imageForm.addEventListener("input", () => {
     if (imagePaste.kind !== "ready") return;
-    try {
-      const size = resizedDimensions(
-        imagePaste.image,
-        Number(imageWidth.value),
-      );
-      imageMessage.textContent = `${size.width} × ${size.height} px`;
-      imageInsertButton.disabled = false;
-    } catch (error) {
-      imageMessage.textContent =
-        error instanceof Error ? error.message : "Enter a valid width.";
-      imageInsertButton.disabled = true;
-    }
+    imagePaste = {
+      ...imagePaste,
+      fields: readImageFields(imagePaste.image),
+      problem: "",
+    };
+    renderImagePaste();
   });
   for (const type of ["pointerdown", "mousedown"] as const) {
     root.addEventListener(type, (event) => {
