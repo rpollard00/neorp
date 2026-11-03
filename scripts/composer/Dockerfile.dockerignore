@@ -4,6 +4,8 @@
 !src/site.ts
 !src/lib/post-plain.ts
 !src/lib/link-cards.ts
+!src/lib/image-figures.ts
+!src/styles/image-figure.css
 !scripts/links/
 !scripts/links/*.ts
 !scripts/composer/images.ts

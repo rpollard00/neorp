@@ -5,7 +5,8 @@ RUN bun install --frozen-lockfile --ignore-scripts
 COPY scripts/composer/ scripts/composer/
 COPY scripts/links/ scripts/links/
 COPY src/site.ts src/site.ts
-COPY src/lib/post-plain.ts src/lib/link-cards.ts src/lib/
+COPY src/lib/post-plain.ts src/lib/link-cards.ts src/lib/image-figures.ts src/lib/
+COPY src/styles/image-figure.css src/styles/image-figure.css
 RUN bun scripts/composer/shell/build.ts
 
 FROM node:24.19.0-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df

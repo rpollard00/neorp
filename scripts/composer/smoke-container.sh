@@ -4,13 +4,13 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
-tag=$$
+work=$(mktemp -d /tmp/composer-smoke.XXXXXX)
+tag=${work##*.}
 image=composer-smoke-image:$tag
 app=composer-smoke-app-$tag
 site=composer-smoke-site-$tag
 network=composer-smoke-net-$tag
 helper=composer-smoke-helper-$tag
-work=$(mktemp -d /tmp/composer-smoke.XXXXXX)
 app_port=$((20000 + RANDOM % 20000))
 proof_port=$((app_port + 1))
 app_url=http://127.0.0.1:$app_port
@@ -54,10 +54,13 @@ cleanup() {
 trap cleanup EXIT
 
 [[ $(docker info --format '{{.SecurityOptions}}') == *rootless* ]] || die "This script needs rootless Docker."
+pass "temporary resources use $tag in $work"
 
 docker build --progress=plain --platform linux/amd64 -f "$root/scripts/composer/Dockerfile" -t "$image" "$root" >/dev/null
 built=1
 image_bytes=$(docker image inspect "$image" --format '{{.Size}}')
+image_id=$(docker image inspect "$image" --format '{{.Id}}')
+pass "built $image as $image_id"
 pass "the image builds: $((image_bytes / 1000000)) MB"
 
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -156,6 +159,13 @@ cookie=$(jq -nc --arg token "$token" '{token: $token}' | curl -fsS "${json[@]}" 
 pass "pairing works"
 session=(-H "Cookie: $cookie")
 
+curl -fsS "$app_url/styles.css" >"$work/shell.css"
+tail -c "$(wc -c <"$root/src/styles/image-figure.css")" "$work/shell.css" |
+  cmp -s "$root/src/styles/image-figure.css" - || die "the shell omitted the shared figure CSS"
+curl -fsS "$app_url/app.js" >"$work/app.js"
+grep -Fq '<!--neorp-figure:' "$work/app.js" || die "the shell omitted the figure codec"
+pass "the container serves the shared figure CSS and bundled codec"
+
 new_pad() {
   jq -nc --arg id "$1" --arg text "$2" \
     '{id: $id, rev: 1, text: $text, tags: [], target: {kind: "new"}, stage: {kind: "writing"}, updatedAt: "2026-10-31T00:00:00.000Z"}'
@@ -163,7 +173,7 @@ new_pad() {
 prove() { jq -c '{pad: .}' <<<"$1" | curl -sS --max-time 600 "${session[@]}" "${json[@]}" --data-binary @- "$app_url/api/prove"; }
 ship() { jq -nc --arg sha "$1" '{sha: $sha}' | curl -fsS --max-time 60 "${session[@]}" "${json[@]}" --data-binary @- "$app_url/api/ship"; }
 
-printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z9DwHwAGAAJ/IQJzOwAAAABJRU5ErkJggg==' | base64 -d >"$work/image.png"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoAQMAAAD9/NgSAAAABlBMVEUrPf/18OahYiE3AAAA4UlEQVR4nO3ZsREAIAgDwOw/SqZkAUoKincAC08R8unxig2doWvjpSgO6qE/xTeqc9As6Q/12MYKk5Th0bwsIhCzSJaEafJDkanYWdIOF3gKQqJm1IyaUTNqRs2oGTWjZtSMmlEzakbNqBk1o2bUjJpRM2pGzagZNaNm1IyaUTNqRs2oGTWjZtSMmlEzakbNqBk1o2bUjJpRM2pGzagZNaNm1IyaUTNqRs2oGTWjZtSMmlEzakbNqBk1o2bUjJpRM2pGzagZNaNm1IyaUTNqRs2oGTWjZtSMmlEzatZl/S8OA1KCuVeT0rmSAAAAAElFTkSuQmCC' | base64 -d >"$work/image.png"
 asset_name=$(sha256sum "$work/image.png" | cut -d ' ' -f 1).png
 asset_path=public/post-assets/$asset_name
 asset_url=/post-assets/$asset_name
@@ -174,11 +184,19 @@ cmp -s "$work/image.png" "$work/recovered.png" || die "the asset API changed the
 pass "GET recovers the PNG bytes"
 
 before=$(git -C "$remote" rev-parse main)
+figures=
+for size in compact auto wide; do
+  frame=pixel
+  [[ $size != wide ]] || frame=bare
+  figures+="
+
+![$size figure PNG]($asset_url)<!--neorp-figure:1 {\"size\":\"$size\",\"frame\":\"$frame\",\"width\":640,\"height\":360,\"caption\":\"$size caption \\u003csample\\u003e \\u0026 original bytes\"}-->"
+done
 pad=$(new_pad smoke-pad-one "Smoke post $tag
 
 The body of the smoke post.
 
-![Container smoke PNG]($asset_url)")
+![Container smoke PNG]($asset_url)$figures")
 equal "PUT saves a pad" "$(curl -fsS -X PUT "${session[@]}" "${json[@]}" --data-binary "$pad" "$app_url/api/pads/smoke-pad-one" | jq -c .)" '{"rev":1,"same":true}'
 equal "GET reads the pad" "$(curl -fsS "${session[@]}" "$app_url/api/pads" | jq -r '.[0].id')" smoke-pad-one
 
@@ -193,6 +211,14 @@ grep -q "The body of the smoke post" "$work/page.html" || die "the proof port do
 grep -q 'name="generator" content="Astro' "$work/page.html" || die "Astro did not make the page"
 pass "the proof port serves the page that Astro built"
 grep -Fq "$asset_url" "$work/page.html" || die "the built post does not reference its image"
+grep -Eq '<p><img [^>]*alt="Container smoke PNG"' "$work/page.html" || die "the proof changed the ordinary Markdown image"
+for spec in compact:240:pixel auto:480:pixel wide:640:bare; do
+  IFS=: read -r size cap frame <<<"$spec"
+  figure="<figure class=\"image-figure\" data-frame=\"$frame\" style=\"--image-cap:${cap}px\"><img src=\"$asset_url\" width=\"640\" height=\"360\" alt=\"$size figure PNG\"><figcaption class=\"image-caption\">$size caption &#60;sample&#62; &#38; original bytes</figcaption></figure>"
+  grep -Fq "$figure" "$work/page.html" || die "the proof omitted the $size figure, dimensions, or caption"
+  pass "the proof renders the $size figure with a ${cap}px cap, $frame frame, and separate caption"
+done
+refused "the proof consumes the figure markers" grep -Fq '<!--neorp-figure:' "$work/page.html"
 curl -fsS "${session[@]}" "http://127.0.0.1:$proof_port$asset_url" >"$work/proof.png"
 cmp -s "$work/image.png" "$work/proof.png" || die "the proof changed the PNG bytes"
 pass "the proof serves the PNG bytes"
@@ -207,6 +233,10 @@ equal "exactly one changed path is a post" "$(wc -l <<<"$post_path")" 1
 grep -Fxq "$asset_path" <<<"$paths" || die "the commit omitted $asset_path"
 git -C "$remote" show "main:$post_path" >"$work/post.md"
 grep -Fq "![Container smoke PNG]($asset_url)" "$work/post.md" || die "the committed post does not reference its image"
+while IFS= read -r line; do
+  [[ -z $line ]] || grep -Fxq "$line" "$work/post.md" || die "the committed post changed a figure"
+done <<<"$figures"
+pass "the commit preserves all figure source lines"
 git -C "$remote" show "main:$asset_path" >"$work/committed.png"
 cmp -s "$work/image.png" "$work/committed.png" || die "the commit changed the PNG bytes"
 pass "the commit contains exactly the post and its PNG bytes"
@@ -234,7 +264,7 @@ in_app grep -q '"sha"' /data/proof/current/proof.json && pass "proof.json is the
 equal "the build ran as uid 1001" "$(curl -fsS "${session[@]}" "$proof/uid.txt")" 1001
 build_env=$(curl -fsS "${session[@]}" "$proof/env.txt")
 for word in COMPOSER CLOUDFLARE "$token" FAKE-; do
-  [[ $build_env != *"$word"* ]] || die "the build environment holds $word"
+  [[ $build_env != *"$word"* ]] || die "the build environment holds a secret or composer setting"
 done
 pass "the build environment holds no secret and no composer setting"
 
