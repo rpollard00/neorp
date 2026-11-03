@@ -2,6 +2,14 @@ import type { LinkPreview, Pad, Sha } from "../protocol";
 import { parsePadId } from "../protocol";
 import { webUrl } from "../text";
 import { createEditor } from "./editor";
+import { imageMarkdown } from "../images";
+import {
+  createImageLibrary,
+  decodePastedImage,
+  encodePastedImage,
+  resizedDimensions,
+  type PastedImage,
+} from "./images";
 import {
   barOf,
   buildingNotice,
@@ -96,6 +104,27 @@ const settledState = required("settled-state");
 const settledWhere = required("settled-where");
 const openPost = elementOf("open-post", HTMLAnchorElement);
 const bars = [...document.querySelectorAll<HTMLElement>("[data-bar]")];
+const imagePop = required("image-pop");
+const imageForm = elementOf("image-form", HTMLFormElement);
+const imagePreview = elementOf("image-preview", HTMLImageElement);
+const imageFields = required("image-fields");
+const imageWidth = elementOf("image-width", HTMLInputElement);
+const imageAlt = elementOf("image-alt", HTMLInputElement);
+const imageMessage = required("image-message");
+const imageInsertButton = elementOf("image-insert", HTMLButtonElement);
+const imageCancel = elementOf("image-cancel", HTMLButtonElement);
+const imageSaveProblem = required("image-save-problem");
+
+type ImagePasteState =
+  | { kind: "closed" }
+  | { kind: "loading"; token: symbol }
+  | { kind: "ready"; token: symbol; image: PastedImage; problem: string }
+  | { kind: "saving"; token: symbol; image: PastedImage }
+  | { kind: "failed"; token: symbol; message: string };
+let imagePaste: ImagePasteState = { kind: "closed" };
+const ownsImagePaste = (token: symbol) =>
+  imagePaste.kind !== "closed" && imagePaste.token === token;
+const images = createImageLibrary({ fetch: (url, init) => fetch(url, init) });
 
 let screen: Screen = { kind: "write", popover: "closed", problem: null };
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -110,6 +139,7 @@ const send = (event: ScreenEvent) => {
 };
 
 const store = createStore({
+  images,
   storage: localStorage,
   fetch: (url, init) => fetch(url, init),
   online: () => navigator.onLine,
@@ -138,17 +168,136 @@ const store = createStore({
       editor.load(pad.text);
       send({ kind: "pad-opened", pad });
     },
-    currentForked: () => send({ kind: "pad-forked" }),
+    currentForked: () => {
+      closeImagePaste(false);
+      send({ kind: "pad-forked" });
+    },
   },
 });
 
 const editor = createEditor({
   parent: editorHost,
+  onImagePaste: (files) => void openImagePaste(files),
+  onLoad: () => closeImagePaste(false),
   onChange: (text) => {
     store.edit(text);
     send({ kind: "edited" });
   },
 });
+
+const imagePasteMessage = (state: ImagePasteState): string => {
+  switch (state.kind) {
+    case "closed":
+      return "";
+    case "loading":
+      return "Opening image…";
+    case "saving":
+      return "Saving image on this phone…";
+    case "failed":
+      return state.message;
+    case "ready":
+      return (
+        state.problem ||
+        `${state.image.width} × ${state.image.height} px. The saved image keeps its proportions.`
+      );
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
+  }
+};
+
+const renderImagePaste = () => {
+  const state = imagePaste;
+  imagePop.hidden = state.kind === "closed";
+  const hasImage = state.kind === "ready" || state.kind === "saving";
+  imagePreview.hidden = !hasImage;
+  imageFields.hidden = !hasImage;
+  imageInsertButton.disabled = state.kind !== "ready";
+  imageWidth.disabled = imageAlt.disabled = state.kind === "saving";
+  imageMessage.textContent = imagePasteMessage(state);
+  if (hasImage) imagePreview.src = state.image.url;
+  else imagePreview.removeAttribute("src");
+};
+
+const closeImagePaste = (clearAnchor = true) => {
+  if (imagePaste.kind === "ready" || imagePaste.kind === "saving")
+    imagePaste.image.release();
+  imagePaste = { kind: "closed" };
+  renderImagePaste();
+  if (clearAnchor) editor.cancelImage();
+};
+
+const openImagePaste = async (files: File[]) => {
+  closeImagePaste(false);
+  closePopover();
+  const token = Symbol();
+  imageAlt.value = "";
+  imagePaste = { kind: "loading", token };
+  renderImagePaste();
+  const [file] = files;
+  if (files.length !== 1 || !file) {
+    imagePaste = {
+      kind: "failed",
+      token,
+      message: `The clipboard has ${files.length} images. Paste one image at a time. No images were inserted.`,
+    };
+    renderImagePaste();
+    imageCancel.focus();
+    return;
+  }
+  try {
+    const image = await decodePastedImage(file);
+    if (!ownsImagePaste(token)) {
+      image.release();
+      return;
+    }
+    imagePaste = { kind: "ready", token, image, problem: "" };
+    imageWidth.max = String(image.width);
+    imageWidth.value = String(image.defaultWidth);
+    renderImagePaste();
+    imageWidth.focus();
+  } catch (error) {
+    if (!ownsImagePaste(token)) return;
+    imagePaste = {
+      kind: "failed",
+      token,
+      message:
+        error instanceof Error
+          ? error.message
+          : "The image could not be opened.",
+    };
+    renderImagePaste();
+    imageCancel.focus();
+  }
+};
+
+const insertPastedImage = async () => {
+  if (imagePaste.kind !== "ready") return;
+  const { token, image } = imagePaste;
+  const alt = imageAlt.value;
+  imagePaste = { kind: "saving", token, image };
+  renderImagePaste();
+  try {
+    const bytes = await encodePastedImage(image, Number(imageWidth.value));
+    const asset = await images.save(bytes);
+    if (imagePaste.kind !== "saving" || imagePaste.token !== token) return;
+    editor.insertImage(imageMarkdown(asset.name, alt));
+    closeImagePaste();
+  } catch (error) {
+    if (imagePaste.kind !== "saving" || imagePaste.token !== token) return;
+    imagePaste = {
+      kind: "ready",
+      token,
+      image,
+      problem:
+        error instanceof Error
+          ? error.message
+          : "The image could not be saved on this phone.",
+    };
+    renderImagePaste();
+  }
+};
 
 const openPad = (pad: Pad) => {
   editor.load(pad.text);
@@ -474,6 +623,8 @@ const renderWriteBar = (current: Screen, rows: readonly EarlierRow[]) => {
   tagsToggle.setAttribute("aria-expanded", String(popover === "tags"));
   linkPop.hidden = popover !== "link";
   linkToggle.setAttribute("aria-expanded", String(popover === "link"));
+  imageSaveProblem.textContent = store.imageProblem();
+  imageSaveProblem.hidden = !store.imageProblem();
   earlierLink.textContent = earlierLabel(earlierCount(rows));
   earlierLink.disabled = current.kind === "building";
   previewButton.textContent = notice?.action ?? "Preview";
@@ -532,6 +683,8 @@ const renderPage = (url: string | null) => {
 
 const render = () => {
   const current = screen;
+  if (current.kind !== "write" && imagePaste.kind !== "closed")
+    closeImagePaste();
   const surface = surfaceOf(current);
   const rows = earlierRows({
     pads: store.all(),
@@ -622,6 +775,29 @@ const onPair = async (event: SubmitEvent) => {
 };
 
 const wire = () => {
+  imageForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void insertPastedImage();
+  });
+  imageCancel.addEventListener("click", () => {
+    closeImagePaste();
+    editor.focus();
+  });
+  imageWidth.addEventListener("input", () => {
+    if (imagePaste.kind !== "ready") return;
+    try {
+      const size = resizedDimensions(
+        imagePaste.image,
+        Number(imageWidth.value),
+      );
+      imageMessage.textContent = `${size.width} × ${size.height} px`;
+      imageInsertButton.disabled = false;
+    } catch (error) {
+      imageMessage.textContent =
+        error instanceof Error ? error.message : "Enter a valid width.";
+      imageInsertButton.disabled = true;
+    }
+  });
   for (const type of ["pointerdown", "mousedown"] as const) {
     root.addEventListener(type, (event) => {
       const target = event.target;
@@ -642,6 +818,7 @@ const wire = () => {
     const target = event.target;
     if (!(target instanceof Element)) return;
     const action = target.closest<HTMLElement>("[data-action]")?.dataset.action;
+    if (action && imagePaste.kind !== "closed") closeImagePaste();
     if (action) actions[action]?.();
   });
   addTagForm.addEventListener("submit", (event) => {
@@ -660,6 +837,11 @@ const wire = () => {
   pairForm.addEventListener("submit", (event) => void onPair(event));
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    if (imagePaste.kind !== "closed") {
+      closeImagePaste();
+      editor.focus();
+      return;
+    }
     const inLink = linkPop.contains(document.activeElement);
     closePopover();
     if (inLink) editor.focus();

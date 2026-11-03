@@ -10,6 +10,19 @@ import {
   webUrl,
 } from "./text";
 
+test("an image-first pad keeps the full image in the body and uses the Note title", () => {
+  const image = `![A picture](/post-assets/${"a".repeat(64)}.png)`;
+  const file = newPostFile({
+    text: `\n\n${image}\n\nAfter the image.`,
+    tags: [],
+    day: "2026-11-02",
+    taken: [],
+  });
+  expect(file?.title).toBe("Note 2026-11-02");
+  expect(file?.source).toContain(`\n\n${image}\n\nAfter the image.\n`);
+  expect(file?.source).not.toContain("description:");
+});
+
 const DAY = "2026-10-31";
 
 const post = (text: string, tags: string[] = [], taken: string[] = []) => {

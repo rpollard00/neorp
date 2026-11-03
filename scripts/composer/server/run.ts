@@ -9,19 +9,29 @@ export const run = async ({
   cmd: string[];
   env: Record<string, string>;
   cwd?: string;
-  stdin?: string;
+  stdin?: string | Uint8Array;
 }) => {
   const child = Bun.spawn(cmd, {
     env,
     cwd,
-    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+    stdin:
+      stdin === undefined
+        ? "ignore"
+        : typeof stdin === "string"
+          ? new TextEncoder().encode(stdin)
+          : stdin,
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
+  const [stdoutBytes, stderr, code] = await Promise.all([
+    new Response(child.stdout).bytes(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  return { code, stdout, stderr };
+  return {
+    code,
+    stdout: new TextDecoder().decode(stdoutBytes),
+    stdoutBytes,
+    stderr,
+  };
 };

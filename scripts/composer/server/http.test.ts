@@ -11,6 +11,7 @@ import {
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { join } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 import type { Pad, Proved, Sha, ShipStatus } from "../protocol";
 import {
   APP_HOST,
@@ -23,6 +24,13 @@ import {
 import { createServer } from "./http";
 import { createPads } from "./pads";
 import { createPipeline } from "./pipeline";
+import {
+  assetNameFor,
+  assetUrl,
+  IMAGE_BYTE_LIMIT,
+  imageMarkdown,
+} from "../images";
+import { PNG_BYTES, pngWithIdat } from "../images.fixture";
 
 setDefaultTimeout(30_000);
 
@@ -96,6 +104,8 @@ afterAll(async () => {
 });
 
 const API_ROUTES: [string, string][] = [
+  ["PUT", `/api/assets/${"a".repeat(64)}.png`],
+  ["GET", `/api/assets/${"a".repeat(64)}.png`],
   ["GET", "/api/session"],
   ["GET", "/api/pads"],
   ["PUT", "/api/pads/pad-abcdefgh"],
@@ -134,6 +144,148 @@ beforeEach(async () => {
 afterEach(async () => {
   await server.stop();
   await pipeline.close();
+});
+
+describe("image uploads", () => {
+  test.each([
+    new Uint8Array(13),
+    deflateSync(new Uint8Array(4)),
+    deflateSync(new Uint8Array([5, 0, 0, 0, 0])),
+  ])("rejects correctly hashed PNGs with corrupt pixel data", async (data) => {
+    const bytes = pngWithIdat({ idat: [data] });
+    const name = await assetNameFor(bytes, "png");
+    const path = `/api/assets/${name}`;
+    expect(
+      (await app(path, { method: "PUT", headers: paired(), body: bytes }))
+        .status,
+    ).toBe(400);
+    expect((await app(path, { headers: paired() })).status).toBe(404);
+  });
+
+  test("the image allowance is separate from the smaller JSON cap", async () => {
+    const text = new Uint8Array(300 * 1024).fill(120);
+    const type = new TextEncoder().encode("tEXt");
+    const chunk = new Uint8Array(text.length + 12);
+    const view = new DataView(chunk.buffer);
+    view.setUint32(0, text.length);
+    chunk.set(type, 4);
+    chunk.set(text, 8);
+    view.setUint32(chunk.length - 4, crc32(chunk.subarray(4, -4)));
+    const bytes = new Uint8Array(PNG_BYTES.length + chunk.length);
+    bytes.set(PNG_BYTES.subarray(0, -12));
+    bytes.set(chunk, PNG_BYTES.length - 12);
+    bytes.set(PNG_BYTES.subarray(-12), bytes.length - 12);
+    const name = await assetNameFor(bytes, "png");
+    expect(
+      (
+        await app(`/api/assets/${name}`, {
+          method: "PUT",
+          headers: paired(),
+          body: bytes,
+        })
+      ).status,
+    ).toBe(204);
+    const response = await app(`/api/assets/${name}`, { headers: paired() });
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  });
+
+  test("authenticated binary PUT is idempotent and GET returns identical bytes", async () => {
+    const name = await assetNameFor(PNG_BYTES, "png");
+    const path = `/api/assets/${name}`;
+    const answers = await Promise.all(
+      [1, 2].map(() =>
+        app(path, { method: "PUT", headers: paired(), body: PNG_BYTES }),
+      ),
+    );
+    expect(answers.map((answer) => answer.status)).toEqual([204, 204]);
+    const answer = await app(path, { headers: paired() });
+    expect(answer.status).toBe(200);
+    expect(answer.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await answer.arrayBuffer())).toEqual(PNG_BYTES);
+    expect(
+      (await app(path, { method: "POST", headers: paired() })).status,
+    ).toBe(405);
+  });
+
+  test("invalid names, bytes, hashes, and missing images fail visibly", async () => {
+    expect(
+      (
+        await app("/api/assets/not-a-hash.png", {
+          method: "PUT",
+          headers: paired(),
+          body: PNG_BYTES,
+        })
+      ).status,
+    ).toBe(400);
+    const wrong = `/api/assets/${"0".repeat(64)}.png`;
+    expect(
+      (await app(wrong, { method: "PUT", headers: paired(), body: PNG_BYTES }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await app(wrong, {
+          method: "PUT",
+          headers: paired(),
+          body: "bad bytes",
+        })
+      ).status,
+    ).toBe(400);
+    expect((await app(wrong, { headers: paired() })).status).toBe(404);
+  });
+
+  test("cross-site and oversized image uploads are refused", async () => {
+    const name = await assetNameFor(PNG_BYTES, "png");
+    const path = `/api/assets/${name}`;
+    expect(
+      (
+        await app(path, {
+          method: "PUT",
+          headers: paired({ "Sec-Fetch-Site": "cross-site" }),
+          body: PNG_BYTES,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await app(path, {
+          method: "PUT",
+          headers: paired(),
+          body: new Uint8Array(IMAGE_BYTE_LIMIT + 1),
+        })
+      ).status,
+    ).toBe(413);
+    const stream = new ReadableStream({
+      start(controller) {
+        for (let n = 0; n < 11; n++)
+          controller.enqueue(new Uint8Array(1024 * 1024));
+        controller.close();
+      },
+    });
+    expect(
+      (await app(path, { method: "PUT", headers: paired(), body: stream }))
+        .status,
+    ).toBe(413);
+  });
+
+  test("a proof serves exactly the uploaded image", async () => {
+    const name = await assetNameFor(PNG_BYTES, "png");
+    await app(`/api/assets/${name}`, {
+      method: "PUT",
+      headers: paired(),
+      body: PNG_BYTES,
+    });
+    const pad = makePad({
+      text: `Image over HTTP\n\n${imageMarkdown(name, "One pixel")}`,
+    });
+    const answer: unknown = await (
+      await app("/api/prove", json({ pad }))
+    ).json();
+    expect(answer).toMatchObject({ kind: "proved" });
+    const image = await proof(assetUrl(name), { headers: paired() });
+    expect(image.status).toBe(200);
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(PNG_BYTES);
+  });
 });
 
 describe("host check", () => {

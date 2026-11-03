@@ -57,7 +57,7 @@ export const createRepo = ({
   }: {
     args: string[];
     env?: Record<string, string>;
-    stdin?: string;
+    stdin?: string | Uint8Array;
     limit?: string[];
   }) => run({ cmd: [...limit, "git", ...args], env, stdin });
 
@@ -127,6 +127,13 @@ export const createRepo = ({
     return code === 0 ? stdout.trim() : undefined;
   };
 
+  const readBytes = async ({ commit, path }: { commit: Sha; path: string }) => {
+    const { code, stdoutBytes } = await tryGit({
+      args: ["cat-file", "blob", `${commit}:${path}`],
+    });
+    return code === 0 ? stdoutBytes : undefined;
+  };
+
   const listFiles = async ({ commit, dir }: { commit: Sha; dir: string }) => {
     const { code, stdout } = await tryGit({
       args: ["ls-tree", "-r", "--name-only", "-z", commit, "--", dir],
@@ -140,7 +147,7 @@ export const createRepo = ({
     message,
   }: {
     parent: Sha;
-    files: { path: string; source: string }[];
+    files: { path: string; source: string | Uint8Array }[];
     message: string;
   }): Promise<Sha | undefined> => {
     const index = join(gitDir, "composer-index");
@@ -230,6 +237,7 @@ export const createRepo = ({
     lastFetchedMain,
     isOnMain,
     read,
+    readBytes,
     blobId,
     listFiles,
     commitFiles,

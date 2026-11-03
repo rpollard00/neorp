@@ -34,7 +34,7 @@ KEYS
 
 WORKDIR /app
 COPY --from=build /build/scripts/composer/server/ scripts/composer/server/
-COPY --from=build /build/scripts/composer/protocol.ts /build/scripts/composer/text.ts scripts/composer/
+COPY --from=build /build/scripts/composer/images.ts /build/scripts/composer/protocol.ts /build/scripts/composer/text.ts scripts/composer/
 COPY --from=build /build/scripts/composer/shell/dist/ scripts/composer/shell/dist/
 COPY --from=build /build/scripts/links/ scripts/links/
 COPY --from=build /build/src/site.ts src/site.ts

@@ -13,6 +13,7 @@ import {
   type Sha,
   type ShipStatus,
 } from "../protocol";
+import { createImageLibrary, type ImageSync } from "./images";
 
 const PAD_PREFIX = "pad:";
 const CURRENT = "current";
@@ -57,6 +58,7 @@ export type StoreDeps = {
   clearTimer: (timer: unknown) => void;
   persist: () => void;
   events: StoreEvents;
+  images?: ImageSync;
 };
 
 export type Outcome<T> =
@@ -244,6 +246,8 @@ type Call<T> = {
 
 export const createStore = (deps: StoreDeps) => {
   const { storage, now, events } = deps;
+  const images = deps.images ?? createImageLibrary({ fetch: deps.fetch });
+  const imageErrors = new Map<PadId, string>();
 
   const pads = readPads(storage);
   const acked = readAcked(storage);
@@ -281,6 +285,17 @@ export const createStore = (deps: StoreDeps) => {
   const ackedRev = (id: PadId) => acked.get(id) ?? 0;
 
   const isBehind = (pad: Pad) => !isBlank(pad) && pad.rev > ackedRev(pad.id);
+  const needsImages = (pad: Pad) => images.pending(pad.text);
+  const syncImages = async (pad: Pad) => {
+    const result = await images.sync(pad.text);
+    if (result.kind === "saved") imageErrors.delete(pad.id);
+    else {
+      imageErrors.set(pad.id, result.message);
+      if (result.reason === "denied") deny();
+    }
+    events.changed();
+    return result;
+  };
 
   const tryWrite = (key: string, value: string) => {
     try {
@@ -476,6 +491,7 @@ export const createStore = (deps: StoreDeps) => {
   };
 
   const put = async (pad: Pad, options: { keepalive: boolean }) => {
+    if (!options.keepalive) await syncImages(pad);
     const outcome = await call({
       method: "PUT",
       path: `/api/pads/${pad.id}`,
@@ -495,7 +511,7 @@ export const createStore = (deps: StoreDeps) => {
 
   const syncBehind = async () => {
     for (const pad of pads.values()) {
-      if (!isBehind(pad)) continue;
+      if (!isBehind(pad) && !needsImages(pad)) continue;
       const outcome = await put(pad, { keepalive: false });
       if (outcome.kind === "denied" || outcome.kind === "unreachable") return;
     }
@@ -598,7 +614,9 @@ export const createStore = (deps: StoreDeps) => {
   };
 
   const hasWork = () =>
-    !pulled || shippingPads().length > 0 || [...pads.values()].some(isBehind);
+    !pulled ||
+    shippingPads().length > 0 ||
+    [...pads.values()].some((pad) => isBehind(pad) || needsImages(pad));
 
   async function run(): Promise<void> {
     if (denied) return;
@@ -634,11 +652,12 @@ export const createStore = (deps: StoreDeps) => {
     current: () => open,
     all: () => [...pads.values()],
     tags: () => tags,
+    imageProblem: () => imageErrors.get(open.id) ?? "",
 
     saveStatus: (): SaveStatus => {
       if (isBlank(open)) return "nothing";
       if (unjournaled.has(open.id)) return "not-saved";
-      return isBehind(open) ? "on-this-phone" : "saved";
+      return isBehind(open) || needsImages(open) ? "on-this-phone" : "saved";
     },
 
     edit: (text: string) => {
@@ -681,15 +700,19 @@ export const createStore = (deps: StoreDeps) => {
       }
     },
 
-    prove: (): Promise<Outcome<Proved>> =>
-      call({
+    prove: async (): Promise<Outcome<Proved>> => {
+      const pad = open;
+      const result = await syncImages(pad);
+      if (result.kind === "failed") return { kind: result.reason };
+      return call({
         method: "POST",
         path: "/api/prove",
-        body: JSON.stringify({ pad: open }),
+        body: JSON.stringify({ pad }),
         waits: RETRY_WAITS,
         timeout: PROVE_TIMEOUT_MS,
         parse: parseProved,
-      }),
+      });
+    },
 
     linkPreview: (url: string): Promise<Outcome<LinkPreview>> =>
       call({

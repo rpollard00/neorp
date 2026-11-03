@@ -13,6 +13,7 @@ import {
   readFile,
   readlink,
   rename,
+  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -24,6 +25,16 @@ import type { Proved, Sha, Slug } from "../protocol";
 import { LINK_CARDS_PATH, type LinkCard } from "../../../src/lib/link-cards";
 import { formatLinkCards, parseLinkCards } from "../../links/fill";
 import type { FetchCard } from "../../links/meta";
+import {
+  assetNameFor,
+  assetPath,
+  imageInfo,
+  imageMarkdown,
+  validateAsset,
+} from "../images";
+import { PNG_BYTES, pngWithIdat } from "../images.fixture";
+import { createAssets } from "./assets";
+import { createRepo } from "./git";
 
 setDefaultTimeout(30_000);
 
@@ -88,6 +99,255 @@ beforeEach(async () => {
 afterEach(async () => {
   await Promise.all(pipelines.splice(0).map((created) => created.close()));
   await fixture.remove();
+});
+
+describe("post images", () => {
+  test("a PNG with a correct CRC and hash but corrupt pixels cannot come from staging or the parent", async () => {
+    const bytes = pngWithIdat({ idat: [new Uint8Array(13)] });
+    const name = await assetNameFor(bytes, "png");
+    const pad = makePad({
+      text: `Corrupt pixels\n\n${imageMarkdown(name, "")}`,
+    });
+    const root = join(fixture.config.dataDir, "assets");
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, name), bytes);
+    expect(imageInfo(bytes)).toBeDefined();
+    expect(await pipeline.prove({ pad })).toMatchObject({
+      kind: "refused",
+      why: { kind: "build-failed" },
+    });
+    const repo = createRepo(fixture.config);
+    const parent = await repo.commitFiles({
+      parent: await fixture.remoteMain(),
+      files: [{ path: assetPath(name), source: bytes }],
+      message: "bad image pixels",
+    });
+    if (!parent) throw new Error("Expected the corrupt image commit");
+    await repo.push(parent);
+    expect(await pipeline.prove({ pad })).toMatchObject({
+      kind: "refused",
+      why: {
+        kind: "build-failed",
+        tail: `The published image ${name} is not valid.`,
+      },
+    });
+    expect(await fixture.buildCount()).toBe(0);
+  });
+
+  const staged = async () => {
+    const name = await assetNameFor(PNG_BYTES, "png");
+    const asset = await validateAsset(name, PNG_BYTES);
+    if (!asset) throw new Error("Invalid image fixture");
+    await createAssets(fixture.config).put(asset);
+    return name;
+  };
+
+  test("commits image bytes with the post and copies them unchanged to the proof", async () => {
+    const name = await staged();
+    const pad = makePad({
+      text: `Image post\n\n${imageMarkdown(name, "One pixel")}`,
+    });
+    const { sha } = await proved(pipeline.prove({ pad }));
+    const repo = createRepo(fixture.config);
+    expect(
+      await repo.readBytes({ commit: sha, path: assetPath(name) }),
+    ).toEqual(PNG_BYTES);
+    expect(await readFile(proofFile(`post-assets/${name}`))).toEqual(
+      Buffer.from(PNG_BYTES),
+    );
+    expect(
+      (
+        await fixture.cloneGit(
+          "diff-tree",
+          "--no-commit-id",
+          "--name-only",
+          "-r",
+          sha,
+        )
+      )
+        .split("\n")
+        .sort(),
+    ).toEqual([assetPath(name), "src/content/posts/image-post.md"].sort());
+    expect((await proved(pipeline.prove({ pad }))).sha).toBe(sha);
+    expect(await fixture.buildCount()).toBe(1);
+  });
+
+  test("missing, malformed, or corrupt images keep the text and refuse proof", async () => {
+    const pads = createPads(fixture.config);
+    const checked = newPipeline({ pads });
+    const name = await assetNameFor(PNG_BYTES, "png");
+    const pad = makePad({ text: `Missing\n\n${imageMarkdown(name, "")}` });
+    expect(await checked.prove({ pad })).toMatchObject({
+      kind: "refused",
+      why: { kind: "build-failed" },
+    });
+    expect((await pads.list()).find((saved) => saved.id === pad.id)?.text).toBe(
+      pad.text,
+    );
+    expect(await fixture.buildCount()).toBe(0);
+    await staged();
+    await writeFile(join(fixture.config.dataDir, "assets", name), "corrupt");
+    expect(await checked.prove({ pad })).toMatchObject({
+      kind: "refused",
+      why: { kind: "build-failed" },
+    });
+    expect(
+      await checked.prove({
+        pad: makePad({ text: "Bad\n\n![x](/post-assets/not-valid.png)" }),
+      }),
+    ).toMatchObject({ kind: "refused", why: { kind: "build-failed" } });
+  });
+
+  test("published parent assets recover on another device and a revision needs no staging", async () => {
+    const name = await staged();
+    const first = await proved(
+      pipeline.prove({
+        pad: makePad({ text: `Original image\n\n${imageMarkdown(name, "")}` }),
+      }),
+    );
+    expect((await pipeline.ship({ sha: first.sha })).kind).toBe("pushed");
+    await rm(join(fixture.config.dataDir, "assets"), { recursive: true });
+    const restored = await createAssets(fixture.config).get(name);
+    expect(restored?.bytes).toEqual(PNG_BYTES);
+    expect(imageInfo(restored?.bytes ?? new Uint8Array())?.width).toBe(1);
+    const revision = await proved(
+      pipeline.prove({
+        pad: makePad({
+          text: `Original image\n\nChanged.\n\n${imageMarkdown(name, "")}`,
+          target: {
+            kind: "revise",
+            slug: "original-image" as Slug,
+            from: first.sha,
+          },
+        }),
+      }),
+    );
+    expect(
+      await fixture.cloneGit(
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        revision.sha,
+      ),
+    ).toBe("src/content/posts/original-image.md");
+    expect(
+      await createRepo(fixture.config).readBytes({
+        commit: revision.sha,
+        path: assetPath(name),
+      }),
+    ).toEqual(PNG_BYTES);
+  });
+
+  test("a corrupt parent image is refused even when staging has valid bytes", async () => {
+    const name = await staged();
+    await fixture.pushFromLaptop({ [assetPath(name)]: "corrupt image" });
+    expect(
+      await pipeline.prove({
+        pad: makePad({ text: `Corrupt parent\n\n${imageMarkdown(name, "")}` }),
+      }),
+    ).toMatchObject({
+      kind: "refused",
+      why: {
+        kind: "build-failed",
+        tail: `The published image ${name} is not valid.`,
+      },
+    });
+    expect(await fixture.buildCount()).toBe(0);
+  });
+
+  test.each(["missing", "symlink"])(
+    "a %s image in the final proof cannot be promoted",
+    async (kind) => {
+      const name = await staged();
+      const script = await fixture.remoteGit("show", "main:build.mjs");
+      const path = `dist/post-assets/${name}`;
+      const change =
+        kind === "symlink"
+          ? `fs.symlinkSync(process.cwd() + "/public/post-assets/${name}", ${JSON.stringify(path)});`
+          : "";
+      await fixture.pushFromLaptop({
+        "build.mjs": `${script}\nconst fs = await import("node:fs"); fs.rmSync(${JSON.stringify(path)}); ${change}\n`,
+      });
+      expect(
+        await pipeline.prove({
+          pad: makePad({ text: `Final proof\n\n${imageMarkdown(name, "")}` }),
+        }),
+      ).toMatchObject({
+        kind: "refused",
+        why: {
+          kind: "build-failed",
+          tail: `The build did not copy the image ${name} unchanged.`,
+        },
+      });
+      expect(await exists(proofFile(`post-assets/${name}`))).toBe(false);
+    },
+  );
+
+  test("ship recovery accepts referenced asset additions and rejects unrelated additions", async () => {
+    const name = await staged();
+    const first = await proved(
+      pipeline.prove({
+        pad: makePad({ text: `Recover image\n\n${imageMarkdown(name, "")}` }),
+      }),
+    );
+    await pipeline.ship({ sha: first.sha });
+    await proved(pipeline.prove({ pad: makePad({ text: "Next post" }) }));
+    expect((await pipeline.ship({ sha: first.sha })).kind).toBe("pushed");
+    const repo = createRepo(fixture.config);
+    const bad = await repo.commitFiles({
+      parent: await fixture.remoteMain(),
+      files: [
+        {
+          path: "src/content/posts/foreign.md",
+          source: "---\ntitle: Foreign\npubDate: 2026-11-02\n---\n\nText\n",
+        },
+        { path: "unrelated.txt", source: "other" },
+      ],
+      message: "unrelated",
+    });
+    if (!bad) throw new Error("Expected an unrelated commit");
+    await repo.push(bad);
+    expect(await pipeline.ship({ sha: bad })).toEqual({ kind: "not-proven" });
+  });
+
+  test("recovery rejects unreferenced or modified asset paths", async () => {
+    const name = await staged();
+    const repo = createRepo(fixture.config);
+    await repo.fetch();
+    const parent = await fixture.remoteMain();
+    const bad = await repo.commitFiles({
+      parent,
+      files: [
+        {
+          path: "src/content/posts/unreferenced.md",
+          source:
+            "---\ntitle: Unreferenced\npubDate: 2026-11-02\n---\n\nText\n",
+        },
+        { path: assetPath(name), source: PNG_BYTES },
+      ],
+      message: "unreferenced image",
+    });
+    if (!bad) throw new Error("Expected an image commit");
+    await repo.push(bad);
+    expect(await pipeline.ship({ sha: bad })).toEqual({ kind: "not-proven" });
+    const modified = await repo.commitFiles({
+      parent: bad,
+      files: [
+        {
+          path: "src/content/posts/modified.md",
+          source: `---\ntitle: Modified\npubDate: 2026-11-02\n---\n\n${imageMarkdown(name, "")}\n`,
+        },
+        { path: assetPath(name), source: "bad" },
+      ],
+      message: "modified image",
+    });
+    if (!modified) throw new Error("Expected a modified image commit");
+    await repo.push(modified);
+    expect(await pipeline.ship({ sha: modified })).toEqual({
+      kind: "not-proven",
+    });
+  });
 });
 
 describe("prove", () => {
