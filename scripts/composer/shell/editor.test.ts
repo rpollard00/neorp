@@ -13,7 +13,60 @@ import {
   linkInsert,
   selectedText,
   separatorInsert,
+  imageInsert,
+  imageAnchor,
+  setImageAnchor,
 } from "./editor";
+
+describe("image insertion", () => {
+  const image = "![A picture](/post-assets/image.png)";
+  test("a blank pad leaves the title line available", () => {
+    const state = make("");
+    const next = state.update(
+      imageInsert(state, { markdown: image, anchor: state.selection.main }),
+    ).state;
+    expect(next.doc.toString()).toBe(`\n\n${image}`);
+    expect(next.selection.main.head).toBe(0);
+  });
+  test("an image pasted on the title goes into the body", () => {
+    const state = make("Title\n\nBody", 2);
+    const next = state.update(
+      imageInsert(state, { markdown: image, anchor: state.selection.main }),
+    ).state;
+    expect(next.doc.toString()).toBe(`Title\n\n${image}\n\nBody`);
+  });
+  test("typing maps the captured anchor while cursor movement does not move it", () => {
+    let state = EditorState.create({
+      doc: "Title\n\nOne\n\nTwo",
+      extensions: [markdown(), imageAnchor],
+    });
+    state = state.update({
+      effects: setImageAnchor.of(EditorSelection.range(12, 15)),
+    }).state;
+    state = state.update({
+      changes: { from: 7, insert: "More " },
+      selection: EditorSelection.cursor(0),
+    }).state;
+    const anchor = state.field(imageAnchor);
+    expect(anchor?.from).toBe(17);
+    expect(anchor?.to).toBe(20);
+    if (!anchor) throw new Error("The image anchor was lost");
+    state = state.update(imageInsert(state, { markdown: image, anchor })).state;
+    expect(state.doc.toString()).toBe(`Title\n\nMore One\n\n${image}\n\n`);
+    expect(state.field(imageAnchor)).toBeNull();
+  });
+  test("cancel and a new editor state invalidate a pending insertion", () => {
+    let state = EditorState.create({ doc: "Title", extensions: [imageAnchor] });
+    state = state.update({
+      effects: setImageAnchor.of(EditorSelection.cursor(3)),
+    }).state;
+    state = state.update({ effects: setImageAnchor.of(null) }).state;
+    expect(state.field(imageAnchor)).toBeNull();
+    expect(
+      EditorState.create({ extensions: [imageAnchor] }).field(imageAnchor),
+    ).toBeNull();
+  });
+});
 
 const make = (doc: string, cursor = doc.length) =>
   EditorState.create({

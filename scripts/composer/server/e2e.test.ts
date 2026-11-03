@@ -8,6 +8,9 @@ import { APP_HOST, makePad, PROOF_HOST } from "./fixture";
 import { createServer } from "./http";
 import { createPads } from "./pads";
 import { createPipeline } from "./pipeline";
+import { assetNameFor, assetPath, assetUrl, imageMarkdown } from "../images";
+import { PNG_BYTES } from "../images.fixture";
+import { createRepo } from "./git";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const ENABLED = process.env.COMPOSER_E2E === "1";
@@ -68,8 +71,18 @@ describe("the real site", () => {
         );
         const cookie = (pair.headers.get("set-cookie") ?? "").split(";")[0];
 
+        const imageName = await assetNameFor(PNG_BYTES, "png");
+        const upload = await fetch(
+          `http://127.0.0.1:${server.appPort}/api/assets/${imageName}`,
+          {
+            method: "PUT",
+            headers: { Host: APP_HOST, cookie: cookie ?? "" },
+            body: PNG_BYTES,
+          },
+        );
+        expect(upload.status).toBe(204);
         const pad = makePad({
-          text: "A real proof\n\nA line of text\n---\nAnother line\n\n```sh\necho “double” ‘single’\n```\n",
+          text: `A real proof\n\nA line of text\n---\nAnother line\n\n\`\`\`sh\necho “double” ‘single’\n\`\`\`\n\n${imageMarkdown(imageName, "A pasted pixel")}\n`,
           tags: ["e2e-tag"],
         });
         const started = performance.now();
@@ -96,6 +109,19 @@ describe("the real site", () => {
         expect(html).toMatch(/<hr\s*\/?>/);
         expect(html).not.toMatch(/<h\d[^>]*>A line of text/);
         expect(html).toContain("tokyo-night");
+        expect(html).toContain(assetUrl(imageName));
+        const image = await fetch(
+          `http://127.0.0.1:${server.proofPort}${assetUrl(imageName)}`,
+          { headers: { Host: PROOF_HOST, cookie: cookie ?? "" } },
+        );
+        expect(image.status).toBe(200);
+        expect(new Uint8Array(await image.arrayBuffer())).toEqual(PNG_BYTES);
+        expect(
+          await createRepo(config).readBytes({
+            commit: proved.sha,
+            path: assetPath(imageName),
+          }),
+        ).toEqual(PNG_BYTES);
 
         const code = /<pre[\s\S]*?<\/pre>/.exec(html)?.[0] ?? "";
         const text = code

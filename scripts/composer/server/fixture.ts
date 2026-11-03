@@ -10,7 +10,7 @@ export const PROOF_HOST = "proof.test:8444";
 
 const BUILD_SCRIPT = (logFile: string) => `
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import pad from "leftpad";
@@ -18,6 +18,7 @@ import pad from "leftpad";
 appendFileSync(${JSON.stringify(logFile)}, "build\\n");
 const root = "src/content/posts";
 mkdirSync("dist", { recursive: true });
+if (existsSync("public")) cpSync("public", "dist", { recursive: true });
 writeFileSync("dist/env.json", JSON.stringify(process.env));
 writeFileSync("dist/has-git.txt", String(existsSync(".git")));
 const probes = {};

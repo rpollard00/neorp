@@ -41,6 +41,13 @@ import { log } from "./log";
 import { createPads, type Pads } from "./pads";
 import { hostPath, run } from "./run";
 import { createSandbox } from "./sandbox";
+import {
+  assetPath,
+  scanReservedAssetUrls,
+  parseAssetName,
+  validateAsset,
+} from "../images";
+import { createAssets } from "./assets";
 
 const LIVE_TIMEOUT_MS = 5_000;
 const TAGS_FETCH_MS = 60_000;
@@ -171,6 +178,7 @@ export const createPipeline = (
   }: { pads?: Pads; fetchSite?: FetchSite; fetchCard?: FetchCard } = {},
 ): Pipeline => {
   const repo = createRepo(config);
+  const assets = createAssets(config);
   const sandbox = createSandbox(config);
   const proofDir = join(config.dataDir, "proof");
   const buildsDir = join(config.dataDir, "builds");
@@ -499,6 +507,30 @@ export const createPipeline = (
     }
     await pruneSpecialFiles(stage);
 
+    const postPath = (await postPaths(proof.sha)).find(
+      (path) => slugOfPath(path) === proof.slug,
+    );
+    const source = postPath
+      ? await repo.read({ commit: proof.sha, path: postPath })
+      : undefined;
+    const references = scanReservedAssetUrls(source ?? "");
+    if (references.kind === "invalid") {
+      await rm(stage, { recursive: true, force: true });
+      return { kind: "build-failed", tail: references.message };
+    }
+    for (const name of references.names) {
+      const bytes = await readFile(join(stage, "post-assets", name)).catch(
+        () => undefined,
+      );
+      if (!bytes || !(await validateAsset(name, bytes))) {
+        await rm(stage, { recursive: true, force: true });
+        return {
+          kind: "build-failed",
+          tail: `The build did not copy the image ${name} unchanged.`,
+        };
+      }
+    }
+
     const page = join(stage, "posts", proof.slug, "index.html");
     const info = await lstat(page).catch(() => undefined);
     if (!info?.isFile()) {
@@ -577,10 +609,34 @@ export const createPipeline = (
     const change = await planChange({ pad, parent, day });
     if ("kind" in change) return refused(change);
 
+    const references = scanReservedAssetUrls(change.source);
+    if (references.kind === "invalid")
+      return refused({ kind: "build-failed", tail: references.message });
+    const imageFiles: { path: string; source: Uint8Array }[] = [];
+    for (const name of references.names) {
+      const path = assetPath(name);
+      const existing = await repo.readBytes({ commit: parent, path });
+      if (existing) {
+        if (await validateAsset(name, existing)) continue;
+        return refused({
+          kind: "build-failed",
+          tail: `The published image ${name} is not valid.`,
+        });
+      }
+      const asset = await assets.staged(name);
+      if (!asset)
+        return refused({
+          kind: "build-failed",
+          tail: `The image ${name} is missing or not valid. Paste it again.`,
+        });
+      imageFiles.push({ path, source: asset.bytes });
+    }
+
     const sha = await repo.commitFiles({
       parent,
       files: [
         { path: change.path, source: change.source },
+        ...imageFiles,
         ...(await cardFiles({ parent, change })),
       ],
       message: change.message,
@@ -647,13 +703,39 @@ export const createPipeline = (
     slot: Proof | undefined,
   ): Promise<{ slug: Slug; check: LiveCheck } | undefined> => {
     if (slot?.sha === sha) return { slug: slot.slug, check: liveCheckOf(slot) };
-    const [change, ...others] = (await repo.changes(sha)).filter(
-      ({ path }) => path !== LINK_CARDS_PATH,
+    const [change, ...others] = (await repo.changes(sha)).filter(({ path }) =>
+      path.startsWith(`${POSTS_DIR}/`),
     );
     if (!change || others.length > 0) return undefined;
     if (!change.path.startsWith(`${POSTS_DIR}/`)) return undefined;
     const slug = parseSlug(slugOfPath(change.path));
     if (!slug) return undefined;
+    const source = await repo.read({ commit: sha, path: change.path });
+    if (
+      source === undefined ||
+      !change.path.endsWith(".md") ||
+      !["A", "M"].includes(change.status)
+    )
+      return undefined;
+    const references = scanReservedAssetUrls(source);
+    if (references.kind === "invalid") return undefined;
+    for (const item of await repo.changes(sha)) {
+      if (item.path === change.path) continue;
+      if (item.path === LINK_CARDS_PATH && ["A", "M"].includes(item.status))
+        continue;
+      const name = item.path.startsWith("public/post-assets/")
+        ? parseAssetName(item.path.slice("public/post-assets/".length))
+        : undefined;
+      if (!name || item.status !== "A" || !references.names.includes(name))
+        return undefined;
+    }
+    for (const name of references.names) {
+      const bytes = await repo.readBytes({
+        commit: sha,
+        path: assetPath(name),
+      });
+      if (!bytes || !(await validateAsset(name, bytes))) return undefined;
+    }
     return {
       slug,
       check:

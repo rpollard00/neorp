@@ -44,6 +44,8 @@ The design has three requirements, in this order:
 3. If the server is reachable, the app saves the text to the server.
    The owner can tap **Tags** to add tags, **Link** to add a link or a link
    card, and **##** to make the line a heading.
+   A pasted image opens a panel with a preview, width, and optional alt text.
+   **Insert** saves the resized image on the phone, then inserts its Markdown.
 4. The owner taps **Preview**. After an estimated 5 to 10 seconds, the app shows
    the real built page.
 5. The owner taps **Publish**. The status changes to "Pushed", then to "Live".
@@ -60,6 +62,8 @@ PUT  /api/pads/:id  Pad        -> { rev, same } save a pad, safe to retry
 GET  /api/pads                 -> Pad[]       restore pads after storage loss
 GET  /api/tags                 -> string[]    tags in use on main
 GET  /api/link-preview?url=    -> LinkPreview  the site name and title of a page
+PUT  /api/assets/:name  bytes  -> 204          save an immutable image
+GET  /api/assets/:name         -> bytes        recover a saved or published image
 POST /api/prove     { pad }    -> Proved      build the exact commit that can ship
 POST /api/ship      { sha }    -> ShipStatus  push that commit, call again to poll
 GET  /*                                       app shell, cached by the service worker
@@ -91,7 +95,8 @@ keeps other text or tags than the request sent.
 1. Save the pad. No later step can lose the text.
 2. Fetch `main`. If the slot matches the parent and the intent, return the slot.
 3. Refuse if the bun or node version differs from the image.
-4. Make a commit of the parent plus one file with git plumbing.
+4. Resolve the image URLs. Refuse missing or invalid images. Commit the post,
+   its images, and any new link cards together with git plumbing.
 5. As uid 1001, export the commit, link the dependencies, and run the build.
 6. Copy `dist` out as uid 0, delete symlinks, and switch the slot.
 
@@ -210,6 +215,44 @@ A fix sets, replaces, or removes `description` to match the pad. A new
 is not on one line, the composer cannot fix the post. If the pad has no title
 line, the title and the description stay.
 
+### Images
+
+Paste one PNG, JPEG, or WebP image into the editor. The image panel shows a
+preview, **Width (px)**, and **Alt text (optional)**. **Insert** resizes the
+source pixels and keeps the proportions. It never enlarges the image. The
+default longest edge is at most 1600 px. **Cancel** leaves the text unchanged.
+If the clipboard has several images, the panel asks for one image at a time
+and inserts none. Text-only paste keeps its normal behavior.
+
+The input and saved image limits are 10 MiB, 12000 px per edge, and 40 million
+pixels. The browser opens and encodes the image before insertion. Decode,
+resize, storage, and upload failures appear in the panel or the save bar.
+The app keeps the paste position through edits. Opening another pad cancels
+the pending paste. An image-first pad keeps the image in the body and uses
+the existing `Note <day>` title until the owner adds a title.
+
+IndexedDB keeps the image bytes. The text journal keeps ordinary Markdown:
+`![alt text](/post-assets/<sha256>.png)`. A completed IndexedDB transaction
+comes before the Markdown insertion. Existing text drafts need no migration.
+Unused image bytes stay in storage to preserve undo and older drafts.
+
+The app derives image work from the text, independently of text acknowledgments.
+It retries failed uploads on sync and refuses Preview until the captured text's
+images reach the server. **Saved** requires both text and image saves. A text
+save still proceeds after an image upload failure, so the server retains the text.
+
+The authenticated asset API checks the filename hash, file signature, dimensions,
+and image byte limit. JSON requests retain their separate 256 KiB limit.
+The server can recover an image from staging or from `main`. Prove independently
+resolves each reserved image URL from staging or the parent commit. It adds
+new bytes under `public/post-assets/` in the same commit as the post, then checks
+that the build copied those bytes unchanged. Static URLs stay the same in
+drafts, previews, revisions, and published posts.
+
+Reserved `/post-assets/` URLs also count in HTML, reference links, and code
+examples. Each must use a valid hash filename and resolve before proof. Images
+outside this reserved path keep the site's existing Markdown behavior.
+
 ### Tags
 
 The **Tags** control opens a popover above the bar. The popover shows the tags
@@ -290,7 +333,8 @@ pinned lego against a local ACME stub on 2026-10-31 showed this.
 
 All composer code is in `scripts/composer/`:
 
-- `protocol.ts`, `text.ts`: the shared contract and the post file rules.
+- `protocol.ts`, `text.ts`, `images.ts`: the shared contract, post rules,
+  and immutable image names and limits.
 - `server/`: the pipeline, the pads, the HTTP routes, the sandbox, and the
   certificate renewal. It imports only `bun`, `node:*`, and relative files.
 - `shell/`: the phone app, with its reducer, journal, editor, and service worker.
@@ -320,7 +364,8 @@ writes anything. The existing `jj rebase -d main` message then applies.
 - We accept one proof slot. A second device can replace the proof of the first.
 - We accept that **Fix** works only for posts in the local list of the phone.
   There is no retraction from the phone.
-- We accept no images and no scheduling in the first version.
+- We accept no scheduling or image cropping. The paste panel sets source pixel size.
+- Immutable image bytes remain on the phone and server without garbage collection.
 - We accept a CodeMirror bundle in the shell, in exchange for live formatting. A
   plain `textarea` cannot draw a break or a code panel in the text.
 - We accept a Cloudflare token on the server, because the certificate must renew

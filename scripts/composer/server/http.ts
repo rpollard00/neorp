@@ -17,12 +17,46 @@ import type { Config } from "./config";
 import { log } from "./log";
 import type { Pads } from "./pads";
 import type { Pipeline } from "./pipeline";
+import { IMAGE_BYTE_LIMIT, parseAssetName, validateAsset } from "../images";
+import { createAssets } from "./assets";
 
 const BODY_LIMIT = 256 * 1024;
 const COOKIE = "composer";
 const COOKIE_LABEL = "neorp composer session";
 const COOKIE_MAX_AGE = 34_560_000;
 const NO_CACHE_FILES = new Set(["index.html", "sw.js"]);
+
+class BodyTooLarge extends Error {}
+
+const readBody = async (request: Request, limit: number) => {
+  if (Number(request.headers.get("content-length")) > limit)
+    throw new BodyTooLarge();
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      length += chunk.value.length;
+      if (length > limit) {
+        await reader.cancel();
+        throw new BodyTooLarge();
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+};
 
 const sameSecret = (a: string, b: string) => {
   const hash = (value: string) => createHash("sha256").update(value).digest();
@@ -33,8 +67,9 @@ const plain = (status: number, text: string, headers?: HeadersInit) =>
   new Response(text, { status, headers });
 
 const readJson = async (request: Request): Promise<unknown> => {
+  const bytes = await readBody(request, BODY_LIMIT);
   try {
-    return await request.json();
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return undefined;
   }
@@ -93,6 +128,7 @@ export const createServer = async (
   const refreshed = { "Set-Cookie": sessionCookie };
   const appHost = new URL(config.appOrigin).host;
   const proofHost = new URL(config.proofOrigin).host;
+  const assets = createAssets(config);
 
   const isPaired = (request: Request) => {
     const cookie = new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
@@ -142,6 +178,34 @@ export const createServer = async (
       return method === "POST" ? pair(request) : plain(405, "Use POST.");
     }
     if (!isPaired(request)) return plain(401, "Pair this app first.");
+
+    const assetRoute = /^\/api\/assets\/([^/]+)$/.exec(path);
+    if (assetRoute) {
+      const name = parseAssetName(assetRoute[1]);
+      if (!name) return badRequest();
+      if (method === "GET") {
+        const asset = await assets.get(name);
+        return asset
+          ? new Response(new Uint8Array(asset.bytes), {
+              headers: {
+                "Content-Type": asset.info.type,
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "private, no-store",
+              },
+            })
+          : plain(404, "The image is missing. Paste it again.");
+      }
+      if (method !== "PUT") return plain(405, "Use GET or PUT.");
+      const bytes = await readBody(request, IMAGE_BYTE_LIMIT);
+      const asset = await validateAsset(name, bytes);
+      if (!asset)
+        return plain(
+          400,
+          "The image bytes, dimensions, or hash are not valid.",
+        );
+      await assets.put(asset);
+      return new Response(null, { status: 204 });
+    }
 
     const padId = /^\/api\/pads\/([^/]+)$/.exec(path)?.[1];
     if (padId !== undefined) {
@@ -219,12 +283,14 @@ export const createServer = async (
   };
 
   const onError = (error: Error) => {
+    if (error instanceof BodyTooLarge)
+      return plain(413, "The request is too large.");
     log("http-error", { message: error.message });
     return plain(500, "The server has an error.");
   };
 
   const shared = {
-    maxRequestBodySize: BODY_LIMIT,
+    maxRequestBodySize: IMAGE_BYTE_LIMIT,
     error: onError,
     ...(config.tls.kind === "files"
       ? {

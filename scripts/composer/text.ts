@@ -148,7 +148,7 @@ const splitPad = (text: string) => {
   const start = lines.findIndex((line) => !isBlank(line));
   if (start === -1) return undefined;
   const first = lines[start] ?? "";
-  if (openFence(first) || isRuleLine(first)) {
+  if (openFence(first) || isRuleLine(first) || /^\s*!\[/.test(first)) {
     return {
       title: null,
       subtitle: null,

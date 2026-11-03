@@ -22,6 +22,9 @@ import {
   type Journal,
   type StoreDeps,
 } from "./store";
+import { createImageLibrary, type ImageSync } from "./images";
+import { imageMarkdown, type AssetName } from "../images";
+import { PNG_BYTES } from "../images.fixture";
 
 const SHA = "b".repeat(40) as Sha;
 const SLUG = "cache-drive" as Slug;
@@ -128,6 +131,7 @@ const setup = (args: {
   firstId?: number;
   changed?: () => void;
   shipAnswered?: () => void;
+  images?: ImageSync;
 }) => {
   const log = args.log ?? [];
   const { journal, data } = args.journal ?? makeJournal(log);
@@ -143,6 +147,7 @@ const setup = (args: {
   };
   let ids = args.firstId ?? 1;
   const deps: StoreDeps = {
+    images: args.images,
     storage: journal,
     fetch: (url, init) => {
       log.push(`fetch ${init.method} ${url}`);
@@ -183,11 +188,119 @@ const settled = async (clock: ReturnType<typeof makeClock>) => {
   for (let step = 0; step < 6; step++) await clock.advance(0);
 };
 
+const waitFor = async (condition: () => boolean) => {
+  for (let step = 0; step < 200 && !condition(); step++) await Bun.sleep(1);
+  expect(condition()).toBe(true);
+};
+
 const seedPad = (journal: ReturnType<typeof makeJournal>, pad: Pad) => {
   journal.data.set(`pad:${pad.id}`, JSON.stringify(pad));
 };
 
 const quotaError = () => new DOMException("full", "QuotaExceededError");
+
+describe("image synchronization", () => {
+  test("a pulled text acknowledgment does not strand failed image uploads or show Saved", async () => {
+    const blobs = new Map<AssetName, Blob>();
+    let status = 503;
+    let uploads = 0;
+    const images = createImageLibrary({
+      blobs: {
+        get: async (name) => blobs.get(name),
+        put: async (name, blob) => {
+          blobs.set(name, blob);
+        },
+      },
+      fetch: async () => {
+        uploads++;
+        return new Response(null, { status });
+      },
+    });
+    const asset = await images.save(PNG_BYTES);
+    const pad = makePad({
+      text: `A picture\n\n${imageMarkdown(asset.name, "")}`,
+    });
+    const journal = makeJournal();
+    seedPad(journal, pad);
+    journal.data.set("current", pad.id);
+    const remote = server([pad]);
+    const { store, clock } = setup({
+      journal,
+      images,
+      handler: remote.handler,
+    });
+    store.start();
+    await settled(clock);
+    await waitFor(() => remote.calls.includes(`PUT /api/pads/${pad.id}`));
+    expect(remote.calls).toContain(`PUT /api/pads/${pad.id}`);
+    expect(store.saveStatus()).toBe("on-this-phone");
+    expect(store.imageProblem()).toContain("503");
+    status = 204;
+    await clock.advance(10_000);
+    await settled(clock);
+    await waitFor(() => store.saveStatus() === "saved");
+    expect(uploads).toBe(2);
+    expect(store.saveStatus()).toBe("saved");
+    expect(store.imageProblem()).toBe("");
+    expect(store.current().text).toBe(pad.text);
+  });
+
+  test("proof waits for assets and uses the captured pad even when typing continues", async () => {
+    const blobs = new Map<AssetName, Blob>();
+    let release: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const images = createImageLibrary({
+      blobs: {
+        get: async (name) => blobs.get(name),
+        put: async (name, blob) => {
+          blobs.set(name, blob);
+        },
+      },
+      fetch: async () => {
+        await waiting;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const asset = await images.save(PNG_BYTES);
+    const sent: unknown[] = [];
+    const { store } = setup({
+      images,
+      handler: async (url, init) => {
+        if (url === "/api/prove") {
+          sent.push(JSON.parse(String(init.body)));
+          return json({ kind: "refused", why: { kind: "blank" } });
+        }
+        return server().handler(url, init);
+      },
+    });
+    const text = `Before\n\n${imageMarkdown(asset.name, "")}`;
+    store.edit(text);
+    const proving = store.prove();
+    await Bun.sleep(0);
+    expect(sent).toHaveLength(0);
+    store.edit(`${text}\n\nAfter`);
+    release?.();
+    expect((await proving).kind).toBe("answer");
+    expect(sent).toMatchObject([{ pad: { text } }]);
+    expect(store.current().text).toBe(`${text}\n\nAfter`);
+  });
+
+  test("a missing image prevents proof without dropping recoverable text", async () => {
+    const images = createImageLibrary({
+      blobs: { get: async () => undefined, put: async () => {} },
+      fetch: async () => new Response(null, { status: 404 }),
+    });
+    const text = `Missing\n\n![x](/post-assets/${"a".repeat(64)}.png)`;
+    const { store, log } = setup({ images });
+    store.edit(text);
+    expect(await store.prove()).toEqual({ kind: "server-error" });
+    expect(log.some((entry) => entry.includes("/api/prove"))).toBe(false);
+    expect(store.current().text).toBe(text);
+    expect(store.imageProblem()).toContain("missing");
+  });
+});
 
 /** The journal refuses each write for which `full` is true. */
 const limit = (

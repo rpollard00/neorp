@@ -13,6 +13,8 @@ import {
   EditorSelection,
   EditorState,
   StateField,
+  StateEffect,
+  type SelectionRange,
   type Line,
   type Range,
   type TransactionSpec,
@@ -28,6 +30,17 @@ import {
 } from "@codemirror/view";
 import { cardLines } from "../../../src/lib/link-cards";
 import { isRuleLine, subtitleOf } from "../text";
+
+export const setImageAnchor = StateEffect.define<SelectionRange | null>();
+export const imageAnchor = StateField.define<SelectionRange | null>({
+  create: () => null,
+  update(value, transaction) {
+    let next = value?.map(transaction.changes, 1) ?? null;
+    for (const effect of transaction.effects)
+      if (effect.is(setImageAnchor)) next = effect.value;
+    return next;
+  },
+});
 
 class BreakWidget extends WidgetType {
   override eq() {
@@ -178,7 +191,7 @@ const readTree = (state: EditorState) => {
 const titleLine = (state: EditorState): Line | undefined => {
   for (let number = 1; number <= state.doc.lines; number++) {
     const line = state.doc.line(number);
-    if (line.text.trim()) return line;
+    if (line.text.trim()) return /^\s*!\[/.test(line.text) ? undefined : line;
   }
   return undefined;
 };
@@ -406,6 +419,35 @@ export const cardInsert = (
   };
 };
 
+export const imageInsert = (
+  state: EditorState,
+  args: { markdown: string; anchor: SelectionRange },
+): TransactionSpec => {
+  const title = titleLine(state);
+  if (!state.doc.toString().trim())
+    return {
+      changes: { from: 0, insert: `\n\n${args.markdown}` },
+      selection: EditorSelection.cursor(0),
+      effects: setImageAnchor.of(null),
+      userEvent: "input.paste",
+    };
+  const from =
+    title && args.anchor.from <= title.to ? title.to : args.anchor.from;
+  const to = Math.max(from, args.anchor.to);
+  const { lead, trail } = gaps({
+    before: state.sliceDoc(0, from),
+    after: state.sliceDoc(to),
+  });
+  const insert = `${lead}${args.markdown}${trail}`;
+  return {
+    changes: { from, to, insert },
+    selection: EditorSelection.cursor(from + insert.length),
+    effects: setImageAnchor.of(null),
+    scrollIntoView: true,
+    userEvent: "input.paste",
+  };
+};
+
 const HEADING_MARK = /^ {0,3}(#{1,6})(?:[ \t]+|$)/;
 
 const headingStep = (text: string) => {
@@ -452,6 +494,8 @@ const chrome = EditorView.theme({
 export const createEditor = (args: {
   parent: HTMLElement;
   onChange: (text: string) => void;
+  onImagePaste?: (files: File[]) => void;
+  onLoad?: () => void;
 }) => {
   const lock = new Compartment();
 
@@ -461,6 +505,7 @@ export const createEditor = (args: {
       selection: EditorSelection.cursor(text.length),
       extensions: [
         history(),
+        imageAnchor,
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         markdown(),
         decorations,
@@ -474,6 +519,21 @@ export const createEditor = (args: {
           spellcheck: "true",
         }),
         lock.of(EditorState.readOnly.of(false)),
+        EditorView.domEventHandlers({
+          paste(event, view) {
+            if (view.state.readOnly || !args.onImagePaste) return false;
+            const files = [...(event.clipboardData?.files ?? [])].filter(
+              (file) => file.type.startsWith("image/"),
+            );
+            if (files.length === 0) return false;
+            event.preventDefault();
+            view.dispatch({
+              effects: setImageAnchor.of(view.state.selection.main),
+            });
+            args.onImagePaste(files);
+            return true;
+          },
+        }),
         // This listener runs inside the dispatch, with no async step first.
         EditorView.updateListener.of((update) => {
           if (update.docChanged) args.onChange(update.state.doc.toString());
@@ -488,7 +548,19 @@ export const createEditor = (args: {
 
   return {
     /** This does not call `onChange`. */
-    load: (text: string) => view.setState(makeState(text)),
+    load: (text: string) => {
+      args.onLoad?.();
+      view.setState(makeState(text));
+    },
+
+    cancelImage: () => view.dispatch({ effects: setImageAnchor.of(null) }),
+    insertImage: (markdown: string) => {
+      const anchor = view.state.field(imageAnchor);
+      if (!anchor) return false;
+      view.dispatch(imageInsert(view.state, { markdown, anchor }));
+      view.focus();
+      return true;
+    },
 
     /** The keyboard stays open, and the text does not change. */
     setLocked: (locked: boolean) => {
