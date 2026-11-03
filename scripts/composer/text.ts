@@ -1,7 +1,9 @@
+import { cardUrls } from "../../src/lib/link-cards";
 import { POSTS_DIR, slugify } from "../../src/lib/post-plain";
 import type { Slug } from "./protocol";
 
 const TITLE_LIMIT = 70;
+const SUBTITLE_LIMIT = 200;
 const SLUG_LIMIT = 60;
 
 const DASH_RULE = /^ {0,3}(?:(?:[-–—][ \t]*){2,}|—[ \t]*)$/;
@@ -67,14 +69,77 @@ export const normalizeBody = (body: string): string => {
   return `${lines.slice(start, end + 1).join("\n")}\n`;
 };
 
-const capTitle = (line: string) => {
+const cap = ({ line, limit }: { line: string; limit: number }) => {
   const chars = [...line];
-  if (chars.length <= TITLE_LIMIT) return line;
-  const head = chars.slice(0, TITLE_LIMIT).join("");
+  if (chars.length <= limit) return line;
+  const head = chars.slice(0, limit).join("");
   const space = head.lastIndexOf(" ");
   const kept =
-    space > 0 ? head.slice(0, space) : chars.slice(0, TITLE_LIMIT - 1).join("");
+    space > 0 ? head.slice(0, space) : chars.slice(0, limit - 1).join("");
   return `${kept.trimEnd()}…`;
+};
+
+const capTitle = (line: string) => cap({ line, limit: TITLE_LIMIT });
+
+export const isUrlLine = (line: string): boolean => cardUrls(line).length > 0;
+
+export const webUrl = (raw: string): string | undefined => {
+  const url = raw.trim();
+  return /^https?:\/\/\S+$/i.test(url) && URL.canParse(url) ? url : undefined;
+};
+
+const BLOCK_START =
+  /^ {0,3}(?:#{1,6}(?:[ \t]|$)|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|>|\||=+[ \t]*$)/;
+/** An image, a link, or HTML would show raw in a plain-text subtitle. */
+const MARKUP_START = /^\s*[![<]/;
+
+export const isSubtitleLine = (line: string): boolean =>
+  !isBlank(line) &&
+  !BLOCK_START.test(line) &&
+  !MARKUP_START.test(line) &&
+  !openFence(line) &&
+  !isRuleLine(line) &&
+  !isUrlLine(line);
+
+const CODE_SPAN = /(`[^`]+`)/;
+const EMPHASIS =
+  /(\*\*|\*)(?=\S)(.+?)(?<=\S)\1|(?<![\p{L}\p{N}_])(__|_)(?=\S)(.+?)(?<=\S)\3(?![\p{L}\p{N}_])/gu;
+
+const unemphasize = (text: string): string => {
+  const next = text.replace(
+    EMPHASIS,
+    (
+      _match: string,
+      _star: string | undefined,
+      starred: string | undefined,
+      _low: string | undefined,
+      lowered: string | undefined,
+    ) => starred ?? lowered ?? "",
+  );
+  return next === text ? text : unemphasize(next);
+};
+
+const plainText = (line: string) =>
+  line
+    .split(CODE_SPAN)
+    .map((part, index) => (index % 2 ? part.slice(1, -1) : unemphasize(part)))
+    .join("");
+
+const titleOf = (first: string) => first.trim().replace(/^#+\s+/, "");
+
+export const subtitleOf = ({
+  first,
+  next,
+}: {
+  first: string;
+  next: string | undefined;
+}): string | null => {
+  if (isBlank(first) || openFence(first) || isRuleLine(first)) return null;
+  const title = titleOf(first);
+  if (capTitle(title) !== title) return null;
+  if (next === undefined || !isSubtitleLine(next)) return null;
+  const subtitle = plainText(next.trim());
+  return [...subtitle].length <= SUBTITLE_LIMIT ? subtitle : null;
 };
 
 /** `title` is null when the first line is code or a rule, so the text has no title line. */
@@ -84,13 +149,19 @@ const splitPad = (text: string) => {
   if (start === -1) return undefined;
   const first = lines[start] ?? "";
   if (openFence(first) || isRuleLine(first)) {
-    return { title: null, body: normalizeBody(lines.slice(start).join("\n")) };
+    return {
+      title: null,
+      subtitle: null,
+      body: normalizeBody(lines.slice(start).join("\n")),
+    };
   }
-  const line = first.trim().replace(/^#+\s+/, "");
+  const line = titleOf(first);
   const title = capTitle(line);
-  const rest = lines.slice(start + 1);
+  const subtitle = subtitleOf({ first, next: lines[start + 1] });
+  const rest = lines.slice(start + (subtitle === null ? 1 : 2));
   return {
     title,
+    subtitle,
     body: normalizeBody((title === line ? rest : [line, ...rest]).join("\n")),
   };
 };
@@ -119,6 +190,9 @@ const freeSlug = ({
 };
 
 const titleLine = (title: string) => `title: ${JSON.stringify(title)}`;
+
+const descriptionLine = (subtitle: string) =>
+  `description: ${JSON.stringify(subtitle)}`;
 
 const tagsLine = (tags: readonly string[]) => {
   const clean = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
@@ -160,6 +234,7 @@ export const newPostFile = ({
       open: "---\n",
       frontmatter: [
         titleLine(title),
+        ...(pad.subtitle === null ? [] : [descriptionLine(pad.subtitle)]),
         `pubDate: ${day}`,
         ...(line ? [line] : []),
       ],
@@ -226,8 +301,28 @@ export const revisedPostFile = ({
   if (title.end !== title.start + 1 || !isOneLineScalar(title.value)) {
     return undefined;
   }
+  const [described, ...moreDescriptions] = findEntries({
+    lines,
+    key: "description",
+  });
+  if (moreDescriptions.length > 0) return undefined;
+  if (
+    described &&
+    (described.end !== described.start + 1 || !isOneLineScalar(described.value))
+  ) {
+    return undefined;
+  }
+
   const retitled =
-    pad.title === null ? lines : lines.with(title.start, titleLine(pad.title));
+    pad.title === null
+      ? lines
+      : lines
+          .with(title.start, titleLine(pad.title))
+          .toSpliced(
+            described?.start ?? title.start + 1,
+            described ? 1 : 0,
+            ...(pad.subtitle === null ? [] : [descriptionLine(pad.subtitle)]),
+          );
 
   const line = tagsLine(tags);
   const [entry, ...moreTags] = findEntries({ lines: retitled, key: "tags" });

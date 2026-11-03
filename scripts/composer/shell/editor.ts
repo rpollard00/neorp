@@ -26,7 +26,8 @@ import {
   layer,
   type DecorationSet,
 } from "@codemirror/view";
-import { isRuleLine } from "../text";
+import { cardLines } from "../../../src/lib/link-cards";
+import { isRuleLine, subtitleOf } from "../text";
 
 class BreakWidget extends WidgetType {
   override eq() {
@@ -173,8 +174,41 @@ const readTree = (state: EditorState) => {
   return { lines, marks };
 };
 
+/** As on the server, the first line with text is the title. A blank pad's title goes on line 1. */
+const titleLine = (state: EditorState): Line | undefined => {
+  for (let number = 1; number <= state.doc.lines; number++) {
+    const line = state.doc.line(number);
+    if (line.text.trim()) return line;
+  }
+  return undefined;
+};
+
+const hasSubtitle = (state: EditorState, title: Line) =>
+  title.number < state.doc.lines &&
+  subtitleOf({
+    first: title.text,
+    next: state.doc.line(title.number + 1).text,
+  }) !== null;
+
+/** The title and subtitle leave the body, so the line after them starts it. */
+const cardLineNumbers = (
+  state: EditorState,
+  head: { title: Line | undefined; subtitle: boolean },
+) => {
+  const lines = state.doc.toJSON();
+  if (head.title) {
+    const end = head.title.number + (head.subtitle ? 1 : 0);
+    lines.fill("", head.title.number - 1, end);
+  }
+  return new Set([...cardLines(lines).keys()].map((index) => index + 1));
+};
+
 const lineDecorations = (state: EditorState, lines: LineSets) => {
   const out: Range<Decoration>[] = [];
+  const title = titleLine(state);
+  const titleNumber = title?.number ?? 1;
+  const subtitle = title !== undefined && hasSubtitle(state, title);
+  const cards = cardLineNumbers(state, { title, subtitle });
   for (let number = 1; number <= state.doc.lines; number++) {
     const line = state.doc.line(number);
     const add = (name: string) => out.push(lineClass(name).range(line.from));
@@ -197,8 +231,10 @@ const lineDecorations = (state: EditorState, lines: LineSets) => {
       if (lines.quoteLast.has(number)) add("cm-quote-last");
       if (hasCursor(state, line)) add("cm-quote-cursor");
     }
-    if (number === 1) add("cm-title");
+    if (number === titleNumber) add("cm-title");
+    if (number === titleNumber + 1 && subtitle) add("cm-subtitle");
     if (lines.heading.has(number)) add("cm-heading");
+    if (cards.has(number)) add("cm-card");
   }
   return out;
 };
@@ -301,6 +337,114 @@ export const codeBlockInsert = (state: EditorState): TransactionSpec => {
   };
 };
 
+const linkText = (text: string) => text.replace(/[\\[\]]/g, "\\$&");
+
+const linkTarget = (url: string) => (/[\s()]/.test(url) ? `<${url}>` : url);
+
+export const linkInsert = (
+  state: EditorState,
+  link: { url: string; text: string },
+): TransactionSpec => {
+  const { from, to } = state.selection.main;
+  const text = link.text.trim();
+  const insert = text
+    ? `[${linkText(text)}](${linkTarget(link.url)})`
+    : `<${link.url}>`;
+  return {
+    changes: { from, to, insert },
+    selection: EditorSelection.cursor(from + insert.length),
+    scrollIntoView: true,
+    userEvent: "input",
+  };
+};
+
+const CODE_BLOCKS = new Set(["FencedCode", "CodeBlock"]);
+
+const blockEnd = (state: EditorState, pos: number) => {
+  const line = state.doc.lineAt(pos);
+  if (!line.text.trim()) return line.from;
+  for (const side of [-1, 1] as const) {
+    let node = syntaxTree(state).resolveInner(pos, side);
+    while (!CODE_BLOCKS.has(node.name) && node.parent) node = node.parent;
+    if (CODE_BLOCKS.has(node.name)) return state.doc.lineAt(node.to).to;
+  }
+  let last = line;
+  while (last.number < state.doc.lines) {
+    const next = state.doc.line(last.number + 1);
+    if (!next.text.trim()) break;
+    last = next;
+  }
+  return last.to;
+};
+
+/** `<url>` is a card whenever the URL parses, so the editor need not check it. */
+export const cardInsert = (
+  state: EditorState,
+  card: { url: string },
+): TransactionSpec => {
+  const url = `<${card.url}>`;
+  const title = titleLine(state);
+  if (!title) {
+    return {
+      changes: { from: 0, insert: `\n\n${url}` },
+      selection: EditorSelection.cursor(0),
+      scrollIntoView: true,
+      userEvent: "input",
+    };
+  }
+  const at = blockEnd(state, Math.max(state.selection.main.head, title.from));
+  const { lead, trail, skipped } = gaps({
+    before: state.sliceDoc(0, at),
+    after: state.sliceDoc(at),
+  });
+  const insert = `${lead}${url}${trail}`;
+  return {
+    changes: { from: at, insert },
+    selection: EditorSelection.cursor(at + insert.length + skipped),
+    scrollIntoView: true,
+    userEvent: "input",
+  };
+};
+
+const HEADING_MARK = /^ {0,3}(#{1,6})(?:[ \t]+|$)/;
+
+const headingStep = (text: string) => {
+  const [mark = "", level = ""] = HEADING_MARK.exec(text) ?? [];
+  if (level === "##") return { mark, next: "### " };
+  if (level === "###") return { mark, next: "" };
+  return { mark, next: "## " };
+};
+
+export const headingCycle = (state: EditorState): TransactionSpec => {
+  const { from, to } = state.selection.main;
+  const first = state.doc.lineAt(from).number;
+  const last = state.doc.lineAt(to).number;
+  const bodyStart = (titleLine(state)?.number ?? state.doc.lines) + 1;
+  const changes = [];
+  for (let number = Math.max(first, bodyStart); number <= last; number++) {
+    const line = state.doc.line(number);
+    if (first !== last && !line.text.trim()) continue;
+    const { mark, next } = headingStep(line.text);
+    changes.push({
+      from: line.from,
+      to: line.from + mark.length,
+      insert: next,
+    });
+  }
+  if (changes.length === 0) return {};
+  const set = state.changes(changes);
+  return {
+    changes: set,
+    selection: state.selection.map(set, 1),
+    userEvent: "input",
+  };
+};
+
+export const selectedText = (state: EditorState): string => {
+  const { from, to } = state.selection.main;
+  return state.sliceDoc(from, to).replace(/\s+/g, " ").trim();
+};
+
 const chrome = EditorView.theme({
   "&.cm-focused": { outline: "none" },
 });
@@ -363,6 +507,23 @@ export const createEditor = (args: {
       view.dispatch(codeBlockInsert(view.state));
       view.focus();
     },
+
+    insertLink: (link: { url: string; text: string }) => {
+      view.dispatch(linkInsert(view.state, link));
+      view.focus();
+    },
+
+    insertCard: (card: { url: string }) => {
+      view.dispatch(cardInsert(view.state, card));
+      view.focus();
+    },
+
+    cycleHeading: () => {
+      view.dispatch(headingCycle(view.state));
+      view.focus();
+    },
+
+    selectedText: () => selectedText(view.state),
 
     focus: () => view.focus(),
 

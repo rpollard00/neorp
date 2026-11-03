@@ -134,15 +134,13 @@ export const createRepo = ({
     return code === 0 ? stdout.split("\0").filter(Boolean) : [];
   };
 
-  const commitFile = async ({
+  const commitFiles = async ({
     parent,
-    path,
-    source,
+    files,
     message,
   }: {
     parent: Sha;
-    path: string;
-    source: string;
+    files: { path: string; source: string }[];
     message: string;
   }): Promise<Sha | undefined> => {
     const index = join(gitDir, "composer-index");
@@ -161,20 +159,22 @@ export const createRepo = ({
     await clearIndex();
     try {
       await git(["read-tree", parent], env);
-      const hashed = await tryGit({
-        args: ["hash-object", "-w", "--stdin"],
-        stdin: source,
-      });
-      if (hashed.code !== 0) throw new Error("git hash-object failed");
-      await git(
-        [
-          "update-index",
-          "--add",
-          "--cacheinfo",
-          `100644,${hashed.stdout.trim()},${path}`,
-        ],
-        env,
-      );
+      for (const { path, source } of files) {
+        const hashed = await tryGit({
+          args: ["hash-object", "-w", "--stdin"],
+          stdin: source,
+        });
+        if (hashed.code !== 0) throw new Error("git hash-object failed");
+        await git(
+          [
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            `100644,${hashed.stdout.trim()},${path}`,
+          ],
+          env,
+        );
+      }
       const tree = await git(["write-tree"], env);
       if (tree === (await git(["rev-parse", `${parent}^{tree}`]))) {
         return undefined;
@@ -232,7 +232,7 @@ export const createRepo = ({
     read,
     blobId,
     listFiles,
-    commitFile,
+    commitFiles,
     pin,
     archive,
     push,

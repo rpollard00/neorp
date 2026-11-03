@@ -1,5 +1,6 @@
-import type { Pad, Sha } from "../protocol";
+import type { LinkPreview, Pad, Sha } from "../protocol";
 import { parsePadId } from "../protocol";
+import { webUrl } from "../text";
 import { createEditor } from "./editor";
 import {
   barOf,
@@ -34,6 +35,7 @@ import {
 } from "./store";
 
 const KEYBOARD_MIN_PX = 80;
+const LINK_PREVIEW_DELAY_MS = 400;
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -75,8 +77,17 @@ const chips = required("chips");
 const addTagForm = elementOf("add-tag", HTMLFormElement);
 const newTagInput = elementOf("new-tag", HTMLInputElement);
 const earlierLink = elementOf("earlier-link", HTMLButtonElement);
-const tools = required("tools");
 const tagsToggle = required("tags-toggle");
+const linkPop = required("link-pop");
+const linkToggle = required("link-toggle");
+const linkForm = elementOf("link-form", HTMLFormElement);
+const linkUrl = elementOf("link-url", HTMLInputElement);
+const linkText = elementOf("link-text", HTMLInputElement);
+const linkPreview = required("link-preview");
+const linkSite = required("link-site");
+const linkTitle = required("link-title");
+const linkCard = elementOf("link-card", HTMLButtonElement);
+const linkInsert = elementOf("link-insert", HTMLButtonElement);
 const previewButton = elementOf("preview-button", HTMLButtonElement);
 const shippingLine = required("shipping-line");
 const shippingQuiet = required("shipping-quiet");
@@ -90,6 +101,8 @@ let screen: Screen = { kind: "write", popover: "closed", problem: null };
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let renderedTags = "";
 let renderedRows = "";
+let linkPreviewTimer: ReturnType<typeof setTimeout> | undefined;
+let linkTextTyped = false;
 
 const send = (event: ScreenEvent) => {
   screen = reduce(screen, event);
@@ -186,7 +199,67 @@ const publish = () => {
   store.beginShip(sha);
 };
 
-const closeTags = () => send({ kind: "tags-closed" });
+const closePopover = () => send({ kind: "popover-closed" });
+
+const showLinkPreview = (preview: LinkPreview | undefined) => {
+  linkPreview.hidden = preview === undefined;
+  linkSite.textContent = preview?.site ?? "";
+  linkTitle.textContent = preview?.title ?? "";
+};
+
+const fetchLinkPreview = async (url: string) => {
+  const outcome = await store.linkPreview(url);
+  if (outcome.kind !== "answer" || linkPop.hidden) return;
+  if (webUrl(linkUrl.value) !== url) return;
+  showLinkPreview(outcome.answer);
+  if (!linkTextTyped) linkText.value = outcome.answer.title;
+};
+
+const linkUrlChanged = () => {
+  const url = webUrl(linkUrl.value);
+  linkCard.disabled = url === undefined;
+  linkInsert.disabled = url === undefined;
+  showLinkPreview(undefined);
+  clearTimeout(linkPreviewTimer);
+  if (url === undefined) return;
+  linkPreviewTimer = setTimeout(
+    () => void fetchLinkPreview(url),
+    LINK_PREVIEW_DELAY_MS,
+  );
+};
+
+/** This runs inside the tap, so iOS lets the field take focus and read the clipboard. */
+const openLink = () => {
+  linkUrl.value = "";
+  linkText.value = editor.selectedText();
+  linkTextTyped = linkText.value !== "";
+  linkUrlChanged();
+  linkUrl.focus();
+  navigator.clipboard?.readText().then(
+    (text) => {
+      const url = webUrl(text);
+      if (url === undefined || linkUrl.value || linkPop.hidden) return;
+      linkUrl.value = url;
+      linkUrlChanged();
+      if (document.activeElement === linkUrl) linkText.focus();
+    },
+    () => undefined,
+  );
+};
+
+const insertLink = () => {
+  const url = webUrl(linkUrl.value);
+  if (url === undefined) return;
+  editor.insertLink({ url, text: linkText.value });
+  closePopover();
+};
+
+const insertCard = () => {
+  const url = webUrl(linkUrl.value);
+  if (url === undefined) return;
+  editor.insertCard({ url });
+  closePopover();
+};
 
 const addTag = (raw: string) => {
   const tag = normalizeTag(raw);
@@ -205,6 +278,12 @@ const actions: Record<string, () => void> = {
   "open-earlier": () => send({ kind: "earlier-opened" }),
   "close-earlier": () => send({ kind: "earlier-closed" }),
   "toggle-tags": () => send({ kind: "tags-toggled" }),
+  "toggle-link": () => {
+    send({ kind: "link-toggled" });
+    if (screen.kind === "write" && screen.popover === "link") openLink();
+  },
+  "insert-card": insertCard,
+  "cycle-heading": () => editor.cycleHeading(),
   "insert-separator": () => editor.insertSeparator(),
   "insert-code": () => editor.insertCodeBlock(),
   preview: () => void preview(),
@@ -381,9 +460,9 @@ const renderWriteBar = (current: Screen, rows: readonly EarlierRow[]) => {
   const notice = noticeOf(current);
   const status = saveCopy[store.saveStatus()];
   const blank = isBlank(store.current());
-  const popoverOpen = current.kind === "write" && current.popover === "open";
+  const popover = current.kind === "write" ? current.popover : "closed";
   metaLine.hidden = notice !== null;
-  tools.hidden = notice !== null;
+  tagLine.hidden = notice !== null;
   msg.hidden = notice === null;
   saveBeside.hidden = notice === null;
   save.textContent = status;
@@ -391,8 +470,10 @@ const renderWriteBar = (current: Screen, rows: readonly EarlierRow[]) => {
   msgLabel.hidden = !notice?.label;
   msgLabel.textContent = notice?.label ?? "";
   msgText.textContent = notice?.text ?? "";
-  tagPop.hidden = !popoverOpen;
-  tagsToggle.setAttribute("aria-expanded", String(popoverOpen));
+  tagPop.hidden = popover !== "tags";
+  tagsToggle.setAttribute("aria-expanded", String(popover === "tags"));
+  linkPop.hidden = popover !== "link";
+  linkToggle.setAttribute("aria-expanded", String(popover === "link"));
   earlierLink.textContent = earlierLabel(earlierCount(rows));
   earlierLink.disabled = current.kind === "building";
   previewButton.textContent = notice?.action ?? "Preview";
@@ -552,7 +633,10 @@ const wire = () => {
   root.addEventListener("pointerdown", (event) => {
     const target = event.target;
     if (!(target instanceof Node)) return;
-    if (!tagPop.contains(target) && !tagsToggle.contains(target)) closeTags();
+    const inside = [tagPop, tagsToggle, linkPop, linkToggle].some((element) =>
+      element.contains(target),
+    );
+    if (!inside) closePopover();
   });
   root.addEventListener("click", (event) => {
     const target = event.target;
@@ -565,9 +649,20 @@ const wire = () => {
     addTag(newTagInput.value);
     newTagInput.value = "";
   });
+  linkForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    insertLink();
+  });
+  linkUrl.addEventListener("input", linkUrlChanged);
+  linkText.addEventListener("input", () => {
+    linkTextTyped = linkText.value !== "";
+  });
   pairForm.addEventListener("submit", (event) => void onPair(event));
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeTags();
+    if (event.key !== "Escape") return;
+    const inLink = linkPop.contains(document.activeElement);
+    closePopover();
+    if (inLink) editor.focus();
   });
 
   window.visualViewport?.addEventListener("resize", fitViewport);

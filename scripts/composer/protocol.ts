@@ -192,3 +192,29 @@ export const parseShipStatus = (value: unknown): ShipStatus | undefined => {
       return undefined;
   }
 };
+
+/** What `GET /api/link-preview?url=` finds at a page, for the link tool. */
+export type LinkPreview = {
+  url: string;
+  site: string;
+  title: string;
+  description?: string;
+};
+
+export const parseLinkPreview = (value: unknown): LinkPreview | undefined => {
+  if (!isRecord(value)) return undefined;
+  const { url, site, title, description } = value;
+  if (
+    typeof url !== "string" ||
+    typeof site !== "string" ||
+    typeof title !== "string"
+  ) {
+    return undefined;
+  }
+  if (description !== undefined && typeof description !== "string") {
+    return undefined;
+  }
+  return description === undefined
+    ? { url, site, title }
+    : { url, site, title, description };
+};

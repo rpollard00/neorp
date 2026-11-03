@@ -16,6 +16,13 @@ import {
   siteToday,
   slugFromPath,
 } from "../../../src/lib/post-plain";
+import { LINK_CARDS_PATH } from "../../../src/lib/link-cards";
+import {
+  addLinkCards,
+  formatLinkCards,
+  parseLinkCards,
+} from "../../links/fill";
+import { fetchCardFromWeb, type FetchCard } from "../../links/meta";
 import {
   isRecord,
   parseSha,
@@ -160,7 +167,8 @@ export const createPipeline = (
   {
     pads = createPads(config),
     fetchSite = (url, init) => fetch(url, init),
-  }: { pads?: Pads; fetchSite?: FetchSite } = {},
+    fetchCard = fetchCardFromWeb,
+  }: { pads?: Pads; fetchSite?: FetchSite; fetchCard?: FetchCard } = {},
 ): Pipeline => {
   const repo = createRepo(config);
   const sandbox = createSandbox(config);
@@ -265,6 +273,7 @@ export const createPipeline = (
         ? undefined
         : revisedPostFile({ text: pad.text, tags: pad.tags, current });
     if (!file) return { kind: "not-revisable" };
+    if (file.source === current) return { kind: "unchanged" };
     return {
       slug,
       path,
@@ -298,6 +307,35 @@ export const createPipeline = (
         const exhaustive: never = target;
         return exhaustive;
       }
+    }
+  };
+
+  /** A card file that cannot be read adds no cards; the build then shows the real problem. */
+  const cardFiles = async ({
+    parent,
+    change,
+  }: {
+    parent: Sha;
+    change: Change;
+  }) => {
+    try {
+      const { cards, added, failed } = await addLinkCards({
+        cards: parseLinkCards(
+          await repo.read({ commit: parent, path: LINK_CARDS_PATH }),
+        ),
+        markdown: change.source,
+        fetchCard,
+      });
+      if (added.length > 0 || failed.length > 0) {
+        log("link-cards", { added: added.length, failed: failed.length });
+      }
+      return added.length > 0
+        ? [{ path: LINK_CARDS_PATH, source: formatLinkCards(cards) }]
+        : [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log("link-cards-error", { message });
+      return [];
     }
   };
 
@@ -539,7 +577,14 @@ export const createPipeline = (
     const change = await planChange({ pad, parent, day });
     if ("kind" in change) return refused(change);
 
-    const sha = await repo.commitFile({ parent, ...change });
+    const sha = await repo.commitFiles({
+      parent,
+      files: [
+        { path: change.path, source: change.source },
+        ...(await cardFiles({ parent, change })),
+      ],
+      message: change.message,
+    });
     if (!sha) return refused({ kind: "unchanged" });
     if (slot?.sha === sha) return proved(slot);
 
@@ -602,7 +647,9 @@ export const createPipeline = (
     slot: Proof | undefined,
   ): Promise<{ slug: Slug; check: LiveCheck } | undefined> => {
     if (slot?.sha === sha) return { slug: slot.slug, check: liveCheckOf(slot) };
-    const [change, ...others] = await repo.changes(sha);
+    const [change, ...others] = (await repo.changes(sha)).filter(
+      ({ path }) => path !== LINK_CARDS_PATH,
+    );
     if (!change || others.length > 0) return undefined;
     if (!change.path.startsWith(`${POSTS_DIR}/`)) return undefined;
     const slug = parseSlug(slugOfPath(change.path));

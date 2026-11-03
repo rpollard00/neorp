@@ -156,6 +156,18 @@ body {
   font-weight: 700;
 }
 
+#editor .cm-subtitle {
+  padding-bottom: 6px;
+  color: var(--muted);
+}
+
+#editor .cm-card {
+  padding: 6px 10px;
+  border: 1px solid var(--text);
+  font: 14px/1.5 var(--mono);
+  word-break: break-all;
+}
+
 #editor .cm-heading {
   font-size: 1.25rem;
   font-weight: 800;
@@ -285,14 +297,15 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 28px;
-  padding-top: 4px;
+  height: 44px;
 }
 
 .tags {
   display: flex;
+  flex: 1;
   gap: 6px;
   min-width: 0;
+  margin: 0 12px;
   overflow: hidden;
 }
 
@@ -312,6 +325,14 @@ body {
   color: var(--muted);
 }
 
+#save {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 #save-beside {
   flex: 0 1 auto;
   min-width: 0;
@@ -321,9 +342,9 @@ body {
 }
 
 .msg {
-  min-height: 28px;
+  min-height: 44px;
   margin: 0;
-  padding-top: 7px;
+  padding-top: 12px;
   font: 14px/1.4 var(--sans);
   overflow-wrap: anywhere;
 }
@@ -341,6 +362,10 @@ body {
 
 .tools {
   display: flex;
+}
+
+.tools > :first-child {
+  justify-content: flex-start;
 }
 
 .btn,
@@ -381,6 +406,10 @@ body {
   text-underline-offset: 4px;
 }
 
+.link:disabled {
+  color: var(--muted);
+}
+
 .link[aria-expanded="true"] {
   background: var(--text);
   color: var(--page);
@@ -401,9 +430,9 @@ body {
 
 .pop {
   position: absolute;
-  right: calc(-1 * max(var(--gutter), var(--safe-right)));
+  right: 0;
   bottom: 100%;
-  left: calc(-1 * max(var(--gutter), var(--safe-left)));
+  left: 0;
   z-index: 2;
   padding: 8px max(var(--gutter), var(--safe-right)) 8px
     max(var(--gutter), var(--safe-left));
@@ -468,6 +497,31 @@ input {
 
 .add input {
   flex: 1;
+}
+
+.link-form {
+  display: grid;
+  gap: 8px;
+}
+
+.link-preview {
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font: 14px/1.4 var(--sans);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-preview .label {
+  margin-right: 6px;
+}
+
+.link-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
 }
 
 input::placeholder {

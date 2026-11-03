@@ -127,7 +127,7 @@ equal "uid 1001 has no capabilities" "$(as_build sh -c "grep CapEff /proc/self/s
 refused "/app/node_modules does not exist" in_app test -e /app/node_modules
 equal "the image holds no test file" "$(in_app find /app -name '*.test.ts' -o -name fixture.ts -o -name uid-check.ts)" ""
 equal "/app holds only the server files" "$(in_app find /app -type f -not -path '*/shell/dist/*' -not -path '*/composer/server/*' | sort | tr '\n' ' ')" \
-  "/app/scripts/composer/protocol.ts /app/scripts/composer/text.ts /app/src/lib/post-plain.ts /app/src/site.ts "
+  "/app/scripts/composer/protocol.ts /app/scripts/composer/text.ts /app/scripts/links/fill.ts /app/scripts/links/meta.ts /app/src/lib/link-cards.ts /app/src/lib/post-plain.ts /app/src/site.ts "
 equal "bun matches packageManager" "bun@$(in_app bun --version)" "$(jq -r .packageManager "$root/package.json")"
 equal "node matches .node-version" "$(in_app node --version)" "v$(cat "$root/.node-version")"
 in_app sh -c 'lego --version | grep -q "version 5.5.2"' && pass "lego is the pinned version"

@@ -232,10 +232,27 @@ describe("the session", () => {
 describe("the popover", () => {
   test("it opens and closes on write only", () => {
     const open = reduce(write, { kind: "tags-toggled" });
-    expect(open).toEqual({ ...write, popover: "open" });
-    expect(reduce(open, { kind: "tags-closed" })).toEqual(write);
+    expect(open).toEqual({ ...write, popover: "tags" });
+    expect(reduce(open, { kind: "popover-closed" })).toEqual(write);
     expect(reduce(open, { kind: "tags-toggled" })).toEqual(write);
     expect(reduce(building, { kind: "tags-toggled" })).toEqual(building);
+    expect(reduce(building, { kind: "link-toggled" })).toEqual(building);
+  });
+
+  test("the link popover opens and closes", () => {
+    const open = reduce(write, { kind: "link-toggled" });
+    expect(open).toEqual({ ...write, popover: "link" });
+    expect(reduce(open, { kind: "link-toggled" })).toEqual(write);
+    expect(reduce(open, { kind: "popover-closed" })).toEqual(write);
+  });
+
+  test("opening one popover closes the other", () => {
+    expect(
+      run(write, { kind: "tags-toggled" }, { kind: "link-toggled" }),
+    ).toEqual({ ...write, popover: "link" });
+    expect(
+      run(write, { kind: "link-toggled" }, { kind: "tags-toggled" }),
+    ).toEqual({ ...write, popover: "tags" });
   });
 });
 
