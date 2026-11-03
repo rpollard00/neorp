@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -10,7 +11,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePost } from "./post-file";
-import { parseDay, preflight } from "./publish";
+import {
+  commitPost,
+  fillCards,
+  filesetOf,
+  parseDay,
+  preflight,
+} from "./publish";
 import { UserError } from "./user-error";
 
 describe("parseDay", () => {
@@ -43,7 +50,7 @@ describe("parseDay", () => {
   });
 });
 
-describe("preflight", () => {
+describe("preflight and commitPost", () => {
   const isolatedEnv = (jjConfig: string) => ({
     JJ_CONFIG: jjConfig,
     GIT_CONFIG_GLOBAL: "/dev/null",
@@ -157,9 +164,97 @@ describe("preflight", () => {
     expect(await workingCopy()).toEqual(before);
   });
 
+  test("commits the post and the link cards below @, and leaves other edits", async () => {
+    await mkdir(join(work, "src/data"), { recursive: true });
+    await writeFile(join(work, "src/data/link-cards.json"), "{}\n");
+    await writeFile(join(work, "notes.txt"), "not this\n");
+    const fileset = filesetOf({
+      cwd: work,
+      paths: [join(work, "draft.md"), join(work, "src/data/link-cards.json")],
+    });
+
+    expect(commitPost({ cwd: work, fileset, message: "post: Draft" })).toBe(
+      true,
+    );
+
+    const changed = (revision: string) =>
+      run({
+        cmd: ["jj", "diff", "-r", revision, "--name-only"],
+        cwd: work,
+      })
+        .trim()
+        .split("\n")
+        .sort();
+    expect(changed("@-")).toEqual(["draft.md", "src/data/link-cards.json"]);
+    expect(changed("@")).toEqual(["notes.txt"]);
+  });
+
   test("passes with no remote", () => {
     const local = join(dir, "local");
     run({ cmd: ["jj", "git", "init", local], cwd: dir });
     expect(() => preflight({ cwd: local })).not.toThrow();
+  });
+});
+
+describe("fillCards", () => {
+  const URL_POST = "Intro.\n\nhttps://example.com/a\n";
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "fill-cards-"));
+    await mkdir(join(root, "src/data"), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const asking = () => {
+    const asked: string[] = [];
+    const fetchCard = async (url: string) => {
+      asked.push(url);
+      return { site: "Example", title: "A" };
+    };
+    return { asked, fetchCard };
+  };
+
+  test("a card file that is not JSON adds no cards and stays as it was", async () => {
+    const path = join(root, "src/data/link-cards.json");
+    await writeFile(path, "{ not json");
+    const { fetchCard } = asking();
+    expect(
+      await fillCards({
+        root,
+        post: { path: join(root, "a.md") },
+        markdown: URL_POST,
+        fetchCard,
+      }),
+    ).toEqual({ added: [] });
+    expect(await readFile(path, "utf8")).toBe("{ not json");
+  });
+
+  test("an mdx post reads no cards, because it shows none", async () => {
+    const { asked, fetchCard } = asking();
+    expect(
+      await fillCards({
+        root,
+        post: { path: join(root, "a.mdx") },
+        markdown: URL_POST,
+        fetchCard,
+      }),
+    ).toEqual({ added: [] });
+    expect(asked).toEqual([]);
+  });
+
+  test("a markdown post reads its cards", async () => {
+    const { fetchCard } = asking();
+    expect(
+      await fillCards({
+        root,
+        post: { path: join(root, "a.md") },
+        markdown: URL_POST,
+        fetchCard,
+      }),
+    ).toEqual({ added: ["https://example.com/a"] });
   });
 });

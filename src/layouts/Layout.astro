@@ -103,6 +103,7 @@ const current = (href: string) =>
     --gutter: 1.25rem;
     --px: 4px;
     --checker-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2' viewBox='0 0 2 2' shape-rendering='crispEdges'><rect width='1' height='1'/><rect x='1' y='1' width='1' height='1'/></svg>");
+    --arrow-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='7' height='7' viewBox='0 0 7 7' shape-rendering='crispEdges'><path d='M2 0h5v1H2zM5 1h2v1H5zM4 2h1v1H4zM6 2h1v3H6zM3 3h1v1H3zM2 4h1v1H2zM1 5h1v1H1zM0 6h1v1H0z'/></svg>");
   }
 
   /* Without light-dark() every themed token is invalid, not light, so these
@@ -407,6 +408,89 @@ const current = (href: string) =>
   .prose a:hover {
     background: var(--pop);
     color: var(--on-pop);
+  }
+
+  .prose a.link-card {
+    position: relative;
+    display: block;
+    margin: 0 0 1.75rem;
+    color: var(--text);
+    text-decoration: none;
+    background: none;
+  }
+
+  .prose a.link-card::before {
+    content: "";
+    position: absolute;
+    inset: 6px -6px -6px 6px;
+    background: var(--text);
+    -webkit-mask: var(--checker-mask) 0 0 / 4px 4px repeat;
+    mask: var(--checker-mask) 0 0 / 4px 4px repeat;
+  }
+
+  .link-card-body {
+    position: relative;
+    display: block;
+    padding: 0.9rem 2.6rem 1rem 1rem;
+    border: 2px solid var(--text);
+    background: var(--page);
+  }
+
+  .link-card-body::after {
+    content: "";
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 14px;
+    height: 14px;
+    background: var(--pop-text);
+    -webkit-mask: var(--arrow-mask) 0 0 / 100% 100%;
+    mask: var(--arrow-mask) 0 0 / 100% 100%;
+  }
+
+  .link-card-site {
+    display: block;
+    margin-bottom: 0.45rem;
+    color: var(--muted);
+    font: 500 0.72rem/1.2 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    overflow-wrap: anywhere;
+  }
+
+  .link-card-title {
+    display: block;
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .link-card-description {
+    display: -webkit-box;
+    margin-top: 0.35rem;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.45;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .prose a.link-card:is(:hover, :focus-visible) {
+    background: none;
+    color: var(--text);
+  }
+
+  .link-card:is(:hover, :focus-visible) .link-card-body {
+    transform: translate(3px, 3px);
+  }
+
+  .link-card:is(:hover, :focus-visible) .link-card-title {
+    color: var(--pop-text);
+    text-decoration: underline 2px;
+    text-underline-offset: 3px;
   }
 
   .prose code {

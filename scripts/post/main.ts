@@ -198,11 +198,12 @@ Commands:
       Pick the palette and the scene for the post's plate.
   publish [slug] [--on YYYY-MM-DD] [--yes]
       Ask for what the post still needs (description, tags, plate, scene, date)
-      and write it. Commit the post with jj directly below the working copy, build
-      that commit, move main to it, and push. A failed build undoes it all. A
-      date after today schedules the post. --yes skips the questions that
-      already have answers. Without a slug, pick from the drafts and scheduled
-      posts.
+      and write it. Read a link card for each URL alone in a paragraph into
+      src/data/link-cards.json. Commit the post and the cards with jj directly
+      below the working copy, build that commit, move main to it, and push. A
+      failed build undoes it all. A date after today schedules the post. --yes
+      skips the questions that already have answers. Without a slug, pick from
+      the drafts and scheduled posts.
   help
       Show this.
 
