@@ -6,6 +6,7 @@
 !src/lib/link-cards.ts
 !scripts/links/
 !scripts/links/*.ts
+!scripts/composer/images.ts
 !scripts/composer/protocol.ts
 !scripts/composer/text.ts
 !scripts/composer/server/
