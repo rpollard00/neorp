@@ -11,7 +11,7 @@ import {
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { join } from "node:path";
-import { crc32 } from "node:zlib";
+import { crc32, deflateSync } from "node:zlib";
 import type { Pad, Proved, Sha, ShipStatus } from "../protocol";
 import {
   APP_HOST,
@@ -30,7 +30,7 @@ import {
   IMAGE_BYTE_LIMIT,
   imageMarkdown,
 } from "../images";
-import { PNG_BYTES } from "../images.fixture";
+import { PNG_BYTES, pngWithIdat } from "../images.fixture";
 
 setDefaultTimeout(30_000);
 
@@ -147,6 +147,21 @@ afterEach(async () => {
 });
 
 describe("image uploads", () => {
+  test.each([
+    new Uint8Array(13),
+    deflateSync(new Uint8Array(4)),
+    deflateSync(new Uint8Array([5, 0, 0, 0, 0])),
+  ])("rejects correctly hashed PNGs with corrupt pixel data", async (data) => {
+    const bytes = pngWithIdat({ idat: [data] });
+    const name = await assetNameFor(bytes, "png");
+    const path = `/api/assets/${name}`;
+    expect(
+      (await app(path, { method: "PUT", headers: paired(), body: bytes }))
+        .status,
+    ).toBe(400);
+    expect((await app(path, { headers: paired() })).status).toBe(404);
+  });
+
   test("the image allowance is separate from the smaller JSON cap", async () => {
     const text = new Uint8Array(300 * 1024).fill(120);
     const type = new TextEncoder().encode("tEXt");

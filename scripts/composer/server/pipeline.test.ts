@@ -32,7 +32,7 @@ import {
   imageMarkdown,
   validateAsset,
 } from "../images";
-import { PNG_BYTES } from "../images.fixture";
+import { PNG_BYTES, pngWithIdat } from "../images.fixture";
 import { createAssets } from "./assets";
 import { createRepo } from "./git";
 
@@ -102,6 +102,38 @@ afterEach(async () => {
 });
 
 describe("post images", () => {
+  test("a PNG with a correct CRC and hash but corrupt pixels cannot come from staging or the parent", async () => {
+    const bytes = pngWithIdat({ idat: [new Uint8Array(13)] });
+    const name = await assetNameFor(bytes, "png");
+    const pad = makePad({
+      text: `Corrupt pixels\n\n${imageMarkdown(name, "")}`,
+    });
+    const root = join(fixture.config.dataDir, "assets");
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, name), bytes);
+    expect(imageInfo(bytes)).toBeDefined();
+    expect(await pipeline.prove({ pad })).toMatchObject({
+      kind: "refused",
+      why: { kind: "build-failed" },
+    });
+    const repo = createRepo(fixture.config);
+    const parent = await repo.commitFiles({
+      parent: await fixture.remoteMain(),
+      files: [{ path: assetPath(name), source: bytes }],
+      message: "bad image pixels",
+    });
+    if (!parent) throw new Error("Expected the corrupt image commit");
+    await repo.push(parent);
+    expect(await pipeline.prove({ pad })).toMatchObject({
+      kind: "refused",
+      why: {
+        kind: "build-failed",
+        tail: `The published image ${name} is not valid.`,
+      },
+    });
+    expect(await fixture.buildCount()).toBe(0);
+  });
+
   const staged = async () => {
     const name = await assetNameFor(PNG_BYTES, "png");
     const asset = await validateAsset(name, PNG_BYTES);

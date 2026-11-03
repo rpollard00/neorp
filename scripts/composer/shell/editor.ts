@@ -424,13 +424,25 @@ export const imageInsert = (
   args: { markdown: string; anchor: SelectionRange },
 ): TransactionSpec => {
   const title = titleLine(state);
-  if (!state.doc.toString().trim())
+  const text = state.doc.toString();
+  if (!text.trim())
     return {
       changes: { from: 0, insert: `\n\n${args.markdown}` },
       selection: EditorSelection.cursor(0),
       effects: setImageAnchor.of(null),
       userEvent: "input.paste",
     };
+  const reservedTitle =
+    !title && args.anchor.to === 0 && /^\s*\n\s*\n(?=\s*!\[)/.test(text);
+  if (reservedTitle) {
+    const at = text.search(/\S/);
+    return {
+      changes: { from: at, insert: `${args.markdown}\n\n` },
+      selection: EditorSelection.cursor(0),
+      effects: setImageAnchor.of(null),
+      userEvent: "input.paste",
+    };
+  }
   const from =
     title && args.anchor.from <= title.to ? title.to : args.anchor.from;
   const to = Math.max(from, args.anchor.to);

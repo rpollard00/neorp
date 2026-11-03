@@ -35,6 +35,22 @@ describe("image insertion", () => {
     ).state;
     expect(next.doc.toString()).toBe(`Title\n\n${image}\n\nBody`);
   });
+  test("sequential image-first pastes preserve the blank title and both images", () => {
+    let state = make("");
+    const first = "![First](/post-assets/first.png)";
+    const second = "![Second](/post-assets/second.png)";
+    for (const markdown of [first, second]) {
+      state = state.update(
+        imageInsert(state, { markdown, anchor: state.selection.main }),
+      ).state;
+      expect(state.selection.main.head).toBe(0);
+      expect(state.doc.line(1).text).toBe("");
+      expect(state.doc.line(2).text).toBe("");
+    }
+    expect(state.doc.toString()).toBe(`\n\n${second}\n\n${first}`);
+    state = state.update(state.replaceSelection("A title")).state;
+    expect(state.doc.toString()).toBe(`A title\n\n${second}\n\n${first}`);
+  });
   test("typing maps the captured anchor while cursor movement does not move it", () => {
     let state = EditorState.create({
       doc: "Title\n\nOne\n\nTwo",

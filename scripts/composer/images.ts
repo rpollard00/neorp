@@ -186,14 +186,143 @@ export const assetNameFor = async (
   return name;
 };
 
+const PNG_FORMATS: Record<
+  number,
+  { channels: number; depths: number[] } | undefined
+> = {
+  0: { channels: 1, depths: [1, 2, 4, 8, 16] },
+  2: { channels: 3, depths: [8, 16] },
+  3: { channels: 1, depths: [1, 2, 4, 8] },
+  4: { channels: 2, depths: [8, 16] },
+  6: { channels: 4, depths: [8, 16] },
+};
+
+const validPngPayload = async (
+  bytes: Uint8Array,
+  info: ImageInfo,
+): Promise<boolean> => {
+  const depth = bytes[24];
+  const color = bytes[25];
+  const format = PNG_FORMATS[color];
+  if (
+    !format ||
+    !format.depths.includes(depth) ||
+    bytes[26] !== 0 ||
+    bytes[27] !== 0 ||
+    ![0, 1].includes(bytes[28])
+  )
+    return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const parts: Uint8Array[] = [];
+  let phase: "before" | "data" | "after" = "before";
+  let palette = false;
+  for (let at = 8; at < bytes.length;) {
+    const size = view.getUint32(at);
+    const type = ascii(bytes, at + 4, at + 8);
+    if (type === "IDAT") {
+      if (phase === "after" || (color === 3 && !palette)) return false;
+      phase = "data";
+      parts.push(bytes.subarray(at + 8, at + 8 + size));
+    } else {
+      if (phase === "data") phase = "after";
+      if (type === "PLTE") {
+        if (
+          phase !== "before" ||
+          palette ||
+          ![2, 3, 6].includes(color) ||
+          size === 0 ||
+          size % 3 !== 0 ||
+          size > 768 ||
+          (color === 3 && size / 3 > 2 ** depth)
+        )
+          return false;
+        palette = true;
+      }
+    }
+    at += size + 12;
+  }
+  const layout: [number, number, number, number][] =
+    bytes[28] === 0
+      ? [[0, 0, 1, 1]]
+      : [
+          [0, 0, 8, 8],
+          [4, 0, 8, 8],
+          [0, 4, 4, 8],
+          [2, 0, 4, 4],
+          [0, 2, 2, 4],
+          [1, 0, 2, 2],
+          [0, 1, 1, 2],
+        ];
+  const passes = layout.flatMap(([x, y, dx, dy]) => {
+    const width = Math.max(0, Math.ceil((info.width - x) / dx));
+    const rows = Math.max(0, Math.ceil((info.height - y) / dy));
+    return width && rows
+      ? [{ length: 1 + Math.ceil((width * format.channels * depth) / 8), rows }]
+      : [];
+  });
+  const expected = passes.reduce(
+    (total, pass) => total + pass.length * pass.rows,
+    0,
+  );
+  let part = 0;
+  let offset = 0;
+  const compressed = new ReadableStream<BufferSource>({
+    pull(controller) {
+      while (parts[part]?.length === offset) {
+        part++;
+        offset = 0;
+      }
+      const bytes = parts[part];
+      if (!bytes) {
+        controller.close();
+        return;
+      }
+      const end = Math.min(bytes.length, offset + 1024);
+      controller.enqueue(new Uint8Array(bytes.subarray(offset, end)));
+      offset = end;
+    },
+  });
+  const reader = compressed
+    .pipeThrough(new DecompressionStream("deflate"))
+    .getReader();
+  let total = 0;
+  let nextFilter = 0;
+  let pass = 0;
+  let row = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) return total === expected;
+      const end = total + chunk.value.length;
+      if (end > expected) return false;
+      while (nextFilter < end) {
+        const scan = passes[pass];
+        if (!scan || chunk.value[nextFilter - total] > 4) return false;
+        nextFilter += scan.length;
+        if (++row === scan.rows) {
+          pass++;
+          row = 0;
+        }
+      }
+      total = end;
+    }
+  } catch {
+    return false;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+};
+
 export const validateAsset = async (
   name: AssetName,
   bytes: Uint8Array,
 ): Promise<ImageAsset | undefined> => {
   const info = imageInfo(bytes);
-  return info && (await assetNameFor(bytes, info.ext)) === name
-    ? { name, bytes, info }
-    : undefined;
+  if (!info || (await assetNameFor(bytes, info.ext)) !== name) return undefined;
+  if (info.ext === "png" && !(await validPngPayload(bytes, info)))
+    return undefined;
+  return { name, bytes, info };
 };
 
 export const imageMarkdown = (name: AssetName, alt: string) =>

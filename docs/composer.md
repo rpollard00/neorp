@@ -243,6 +243,9 @@ save still proceeds after an image upload failure, so the server retains the tex
 
 The authenticated asset API checks the filename hash, file signature, dimensions,
 and image byte limit. JSON requests retain their separate 256 KiB limit.
+The asset API accepts composer-encoded images. The paste panel re-encodes source
+images before upload. PNG sources with trailing IDAT padding work through the
+paste panel, but direct uploads of those source bytes are refused.
 The server can recover an image from staging or from `main`. Prove independently
 resolves each reserved image URL from staging or the parent commit. It adds
 new bytes under `public/post-assets/` in the same commit as the post, then checks
