@@ -35,7 +35,7 @@ const { url, palette, number, caption, size } = Astro.props;
     margin: 0;
   }
 
-  /* Whole-pixel scales only, so every plate pixel stays square. */
+  /* Whole-pixel scales where the column allows, so plate pixels stay square. */
   img {
     display: block;
     width: calc(4 * var(--plate-width));
@@ -75,8 +75,9 @@ const { url, palette, number, caption, size } = Astro.props;
     color: var(--muted-on-chrome);
   }
 
-  /* Each step drops a scale where the next one no longer fits the column
-     (2 gutters plus a scrollbar), so max-width never shrinks a plate. */
+  /* Above 44rem the 4x plate is exactly the column width. Below that no whole
+     scale fits, so the plate fills the column instead; on high-density
+     phones the uneven pixel rounding is too small to see. */
   @media (max-width: 60rem) {
     .hero {
       margin-inline: 0;
@@ -88,30 +89,15 @@ const { url, palette, number, caption, size } = Astro.props;
   }
 
   @media (max-width: 44rem) {
-    .plate {
-      max-width: calc(3 * var(--plate-width));
-    }
-
     img,
     .hero img {
-      width: calc(3 * var(--plate-width));
+      width: 100%;
     }
   }
 
   @media (max-width: 40rem) {
     .hero {
       margin-bottom: 2rem;
-    }
-  }
-
-  @media (max-width: 34rem) {
-    .plate {
-      max-width: calc(2 * var(--plate-width));
-    }
-
-    img,
-    .hero img {
-      width: calc(2 * var(--plate-width));
     }
   }
 </style>
