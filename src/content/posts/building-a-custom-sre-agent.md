@@ -5,11 +5,11 @@ pubDate: 2026-11-05
 tags: ["ai", "pi", "effect", "typescript", "foldkit"]
 ---
 
-I had the (probably unoriginal) idea to build an SRE agent for monitoring the production billing application that I’ve built over the last few months,  as its userbase has expanded to the entire company.
+I had the (probably unoriginal) idea to build an SRE agent for monitoring the production billing application that I’ve built over the last couple of months, as its userbase has expanded to the entire company.
 
-I ran into some organizational friction pretty early on in trying to set something up. We have no organizational precedent for something like this -- so any integration, even connecting it to Teams as a bot, is going to require a bunch of nonsense. 
+I ran into some organizational friction pretty early on in trying to set something up. We have no organizational precedent or process for something like this -- so any integration, even connecting it to Teams as a bot, requires a bunch of nonsense before I can even get started. 
 
-Since I didn't have anything beyond a vision, and Enterprises love concrete requirements, forms, and diagrams, I decided to just build it, using my Codex account for inference and my existing permissions for access. The risk with my permissions is that I can do a lot of things that you probably don't want an agent doing. Especially one that's under active development. However, there’s a solid solution to this. I can keep the agent constrained by giving it specific tools rather than letting it run wild with bash and direct access to Azure. It’s currently just acting as an extension of me, and has not been extended any write access to production.
+Since I didn't have anything beyond a vision, and enterprises love concrete requirements, forms, and diagrams, I decided to just build it. I’m using my Codex account for inference and my existing permissions for access. The risk with my permissions is that I can do a lot of things that you probably don't want an agent doing. Especially one that's under active development. However, there’s a solid solution to this. I can keep the agent constrained by giving it specific tools rather than letting it run wild with bash and direct access to Azure. It’s currently just acting as an extension of me, and has not been extended any write access to production.
 
 My initial idea was to integrate into Teams, and have that be the main point of interaction with the agent. However, at my company, there’s no defined process to integrate a custom bot into Teams, apparently nobody has ever done this before. For now, I decided to just put together a chat web UI while in the early Skunkworks/POC phase.
 
