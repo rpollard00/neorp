@@ -17,8 +17,8 @@ const pageTitle = title ? `${title} · ${SITE.name}` : SITE.name;
 const NAV = [
   { href: "/posts/", label: "Posts" },
   { href: "/about/", label: "About" },
-  { href: SITE.github, label: "GitHub", Icon: GitHubMark },
   { href: SITE.feed, label: "RSS" },
+  { href: SITE.github, label: "GitHub", Icon: GitHubMark },
 ];
 const current = (href: string) =>
   Astro.url.pathname === href ? "page" : undefined;
@@ -241,6 +241,12 @@ const current = (href: string) =>
     align-self: center;
     margin: calc(-1 * var(--hit-slop));
     padding: var(--hit-slop);
+  }
+
+  /* Centre the icons on the caps, not the line box, which also lands their
+     pixels on whole device pixels. */
+  .site nav :is(.icon-link, .theme-toggle) {
+    translate: 0 -2.5px;
   }
 
   .site nav .icon-link:hover::after {
