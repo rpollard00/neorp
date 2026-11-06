@@ -5,4 +5,5 @@ export const SITE = {
   description:
     "I've been doing a lot of building. Occasionally, I have thoughts.",
   feed: "/rss.xml",
+  github: "https://github.com/rpollard00",
 } as const;

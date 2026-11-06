@@ -1,6 +1,7 @@
 ---
 import "../styles/dither-mask.css";
 import "../styles/image-figure.css";
+import GitHubMark from "../components/GitHubMark.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
 import Wordmark from "../components/Wordmark.astro";
 import { SITE } from "../site";
@@ -16,6 +17,7 @@ const pageTitle = title ? `${title} · ${SITE.name}` : SITE.name;
 const NAV = [
   { href: "/posts/", label: "Posts" },
   { href: "/about/", label: "About" },
+  { href: SITE.github, label: "GitHub", Icon: GitHubMark },
   { href: SITE.feed, label: "RSS" },
 ];
 const current = (href: string) =>
@@ -55,11 +57,17 @@ const current = (href: string) =>
           <Wordmark scale={3} />
         </a>
         <nav aria-label="Main">
-          {NAV.map(({ href, label }) => (
-            <a href={href} aria-current={current(href)}>
-              {label}
-            </a>
-          ))}
+          {NAV.map(({ href, label, Icon }) =>
+            Icon ? (
+              <a class="icon-link" href={href} aria-label={label} title={label}>
+                <Icon />
+              </a>
+            ) : (
+              <a href={href} aria-current={current(href)}>
+                {label}
+              </a>
+            ),
+          )}
           <ThemeToggle />
         </nav>
       </div>
@@ -75,7 +83,7 @@ const current = (href: string) =>
       <div class="foot">
         <div class="wrap">
           <Wordmark scale={2} />
-          <span>Written by hand, built with Astro</span>
+          <span>There are four lights</span>
           <a href={SITE.feed}>RSS</a>
         </div>
       </div>
@@ -226,7 +234,26 @@ const current = (href: string) =>
     text-decoration: none;
   }
 
-  .site nav a:hover,
+  .site nav .icon-link {
+    --hit-slop: 5px;
+    position: relative;
+    display: inline-flex;
+    align-self: center;
+    margin: calc(-1 * var(--hit-slop));
+    padding: var(--hit-slop);
+  }
+
+  .site nav .icon-link:hover::after {
+    content: "";
+    position: absolute;
+    right: var(--hit-slop);
+    bottom: -1px;
+    left: var(--hit-slop);
+    height: 2px;
+    background: currentColor;
+  }
+
+  .site nav a:not(.icon-link):hover,
   .site nav a[aria-current="page"],
   .foot a:hover {
     text-decoration: underline 2px;
